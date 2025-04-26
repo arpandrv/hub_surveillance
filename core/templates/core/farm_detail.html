@@ -1,0 +1,95 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Farm Details: {{ farm.name }}{% endblock %}
+
+{% block heading %}Farm Details: {{ farm.name }}{% endblock %}
+
+{% block content %}
+  <h2>Farm Information</h2>
+  <ul>
+    <li><strong>Name:</strong> {{ farm.name }}</li>
+    <li><strong>Plant Type:</strong> {{ farm.plant_type.name|default:"Not set" }}</li>
+    <li><strong>Size (Hectares):</strong> {{ farm.size_hectares|default:"Not set" }}</li>
+    <li><strong>Stocking Rate (Plants/Hectare):</strong> {{ farm.stocking_rate|default:"Not set" }}</li>
+    <li><strong>Total Plants (Calculated):</strong> {{ farm.total_plants|default:"Cannot calculate" }}</li>
+    <li><strong>Location Description:</strong> {{ farm.location_description|default:"Not set" }}</li>
+    <li><strong>Owner:</strong> {{ farm.owner.user.username }}</li>
+  </ul>
+
+  {# Display Surveillance Calculation Results #}
+  <hr>
+  <h2>Surveillance Requirement (Placeholder Calculation)</h2>
+  {% if calculation_results %}
+    {% if calculation_results.error %}
+      <p style="color: red;">{{ calculation_results.error }}</p>
+      <p><a href="{% url 'core:edit_farm' farm.id %}">Edit farm details</a> to enable calculation.</p>
+    {% else %}
+      <ul>
+        <li>Calculated Confidence Level: {{ calculation_results.confidence_level }}%</li>
+        <li><strong>Required Plants to Survey:</strong> {{ calculation_results.required_plants_to_survey }}</li>
+        {% if calculation_results.survey_frequency %}
+          <li>Survey Frequency: Approx. 1 plant in every {{ calculation_results.survey_frequency }} plants</li>
+        {% endif %}
+      </ul>
+      <p><em>Note: This is a placeholder calculation. Actual methodology may vary.</em></p>
+    {% endif %}
+  {% else %}
+      <p style="color: orange;">Calculation data not available.</p>
+  {% endif %}
+
+  <hr>
+  {# Add link/button to record surveillance #}
+  <p><a href="{% url 'core:record_surveillance' farm.id %}" role="button" style="font-weight: bold;">Record New Surveillance</a></p>
+
+  {# Display Surveillance History #}
+  <hr>
+  <h2>Surveillance History</h2>
+  {% if surveillance_records %}
+    <table border="1" style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th>Date Performed</th>
+                <th>Plants Surveyed</th>
+                <th>Parts Checked</th>
+                <th>Pests Found</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in surveillance_records %}
+            <tr>
+                <td>{{ record.date_performed|date:"Y-m-d H:i" }}</td>
+                <td>{{ record.plants_surveyed }}</td>
+                <td>
+                    {% for part in record.plant_parts_checked.all %}
+                        {{ part.name }}{% if not forloop.last %}, {% endif %}
+                    {% empty %}
+                        N/A
+                    {% endfor %}
+                </td>
+                <td>
+                    {% for pest in record.pests_found.all %}
+                        {{ pest.name }}{% if not forloop.last %}, {% endif %}
+                    {% empty %}
+                        None
+                    {% endfor %}
+                </td>
+                <td>{{ record.notes|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+  {% else %}
+    <p>No surveillance records found for this farm yet.</p>
+  {% endif %}
+
+  <hr>
+  <p>
+    <a href="{% url 'core:home' %}">Back to Home</a>
+    | <a href="{% url 'core:edit_farm' farm.id %}">Edit Farm</a>
+    {# Add Delete link #}
+    | <a href="{% url 'core:delete_farm' farm.id %}" style="color: red;">Delete Farm</a>
+  </p>
+  {# Add Delete link here later #}
+
+{% endblock %} 

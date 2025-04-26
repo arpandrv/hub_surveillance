@@ -1,0 +1,16 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Confirm Delete{% endblock %}
+
+{% block heading %}Delete Farm: {{ farm.name }}{% endblock %}
+
+{% block content %}
+  <p>Are you sure you want to delete the farm "{{ farm.name }}"?</p>
+  <p>This action cannot be undone. All associated surveillance records will also be deleted.</p>
+
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" style="color: red; font-weight: bold;">Yes, Delete</button>
+    <a href="{% url 'core:farm_detail' farm.id %}" style="margin-left: 1em;">Cancel</a>
+  </form>
+{% endblock %} 

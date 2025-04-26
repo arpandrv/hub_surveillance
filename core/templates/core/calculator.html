@@ -1,0 +1,43 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Surveillance Calculator{% endblock %}
+
+{% block heading %}Surveillance Effort Calculator{% endblock %}
+
+{% block content %}
+  <p>Select a farm to calculate the required surveillance effort.</p>
+
+  <form method="get" action="{% url 'core:calculator' %}">
+    <label for="farm_id">Select Farm:</label>
+    <select name="farm_id" id="farm_id" required>
+      <option value="">---------</option>
+      {% for farm in farms %}
+        <option value="{{ farm.id }}" {% if selected_farm and selected_farm.id == farm.id %}selected{% endif %}>
+          {{ farm.name }}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit">Calculate</button>
+  </form>
+
+  {% if calculation_results %}
+    <hr>
+    <h2>Results for {{ selected_farm.name }}</h2>
+    {% if calculation_results.error %}
+      <p style="color: red;">{{ calculation_results.error }}</p>
+    {% else %}
+      <ul>
+        <li>Total Plants on Farm: {{ calculation_results.total_plants_on_farm }}</li>
+        <li>Calculated Confidence Level: {{ calculation_results.confidence_level }}%</li>
+        <li><strong>Required Plants to Survey:</strong> {{ calculation_results.required_plants_to_survey }}</li>
+        {% if calculation_results.survey_frequency %}
+          <li>Survey Frequency: Approx. 1 plant in every {{ calculation_results.survey_frequency }} plants</li>
+        {% endif %}
+      </ul>
+      <p><em>Note: This is a placeholder calculation. Actual methodology may vary.</em></p>
+    {% endif %}
+  {% elif request.GET.farm_id %}
+      <p style="color: orange;">Could not calculate for the selected farm. Please ensure farm details (size, stocking rate) are complete.</p>
+  {% endif %}
+
+{% endblock %} 

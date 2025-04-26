@@ -1,0 +1,40 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Record Surveillance for {{ farm.name }}{% endblock %}
+
+{% block heading %}Record Surveillance for {{ farm.name }}{% endblock %}
+
+{% block content %}
+  <form method="post">
+    {% csrf_token %}
+    
+    {# Display non-field errors #}
+    {% if form.non_field_errors %}
+      <div class="errorlist">
+        {% for error in form.non_field_errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {# Display form fields #}
+    {# We might want better layout/styling later #}
+    {% for field in form %}
+      <div style="margin-bottom: 1em;">
+        <label>{{ field.label_tag }}</label><br>
+        {{ field }}
+        {% if field.help_text %}
+          <small style="color: grey">{{ field.help_text }}</small>
+        {% endif %}
+        {% for error in field.errors %}
+          <p style="color: red; margin-top: 0.2em;">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+    
+    <button type="submit">Save Record</button>
+  </form>
+
+  <p style="margin-top: 1em;"><a href="{% url 'core:farm_detail' farm.id %}">Cancel and return to Farm Details</a></p>
+
+{% endblock %} 

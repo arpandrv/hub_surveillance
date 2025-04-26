@@ -1,0 +1,36 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Sign Up{% endblock %}
+
+{% block heading %}Sign Up{% endblock %}
+
+{% block content %}
+  <form method="post">
+    {% csrf_token %}
+    
+    {# Display non-field errors (like password mismatch) #}
+    {% if form.non_field_errors %}
+      <div class="errorlist">
+        {% for error in form.non_field_errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {# Display field errors individually #}
+    {% for field in form %}
+      <p>
+        {{ field.label_tag }}<br>
+        {{ field }}
+        {% if field.help_text %}
+          <small style="color: grey">{{ field.help_text }}</small>
+        {% endif %}
+        {% for error in field.errors %}
+          <p style="color: red">{{ error }}</p>
+        {% endfor %}
+      </p>
+    {% endfor %}
+    <button type="submit">Sign up</button>
+  </form>
+  <p>Already have an account? <a href="{% url 'core:login' %}">Login here</a></p>
+{% endblock %} 

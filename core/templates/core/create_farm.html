@@ -1,0 +1,46 @@
+{% extends 'core/base.html' %}
+
+{# Make title dynamic based on whether we are editing #}
+{% block title %}{% if farm %}Edit Farm: {{ farm.name }}{% else %}Create Farm{% endif %}{% endblock %}
+
+{# Make heading dynamic #}
+{% block heading %}{% if farm %}Edit Farm: {{ farm.name }}{% else %}Add a New Farm{% endif %}{% endblock %}
+
+{% block content %}
+  <form method="post">
+    {% csrf_token %}
+    
+    {# Display non-field errors #}
+    {% if form.non_field_errors %}
+      <div class="errorlist">
+        {% for error in form.non_field_errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {# Display form fields #}
+    {% for field in form %}
+      <p>
+        {{ field.label_tag }}<br>
+        {{ field }}
+        {% if field.help_text %}
+          <small style="color: grey">{{ field.help_text }}</small>
+        {% endif %}
+        {% for error in field.errors %}
+          <p style="color: red">{{ error }}</p>
+        {% endfor %}
+      </p>
+    {% endfor %}
+    
+    {# Make button text dynamic #}
+    <button type="submit">{% if farm %}Save Changes{% else %}Save Farm{% endif %}</button>
+  </form>
+  
+  {# Add a link back to farm detail if editing, or home if creating #}
+  {% if farm %}
+    <p><a href="{% url 'core:farm_detail' farm.id %}">Cancel and View Details</a></p>
+  {% else %}
+    <p><a href="{% url 'core:home' %}">Cancel and Go Home</a></p>
+  {% endif %}
+{% endblock %} 

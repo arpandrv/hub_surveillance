@@ -1,0 +1,29 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Edit Profile{% endblock %}
+
+{% block heading %}Edit Your Profile{% endblock %}
+
+{% block content %}
+  {# Display messages #}
+  {% if messages %}
+      {% for message in messages %}
+          <p class="message {{ message.tags }}">{{ message }}</p>
+      {% endfor %}
+  {% endif %}
+
+  <form method="post">
+      {% csrf_token %}
+      
+      <h2>Account Information</h2>
+      {{ user_form.as_p }}
+      
+      <h2>Grower Profile Information</h2>
+      {{ profile_form.as_p }}
+      
+      <button type="submit">Save Changes</button>
+  </form>
+
+  {# Optional: Link to change password #}
+  {# <p><a href="{% url 'password_change' %}">Change Password</a></p> #}
+{% endblock %} 

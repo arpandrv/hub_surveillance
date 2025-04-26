@@ -1,0 +1,29 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Home{% endblock %}
+
+{% block heading %}Welcome to the Mango Surveillance Hub{% endblock %}
+
+{% block content %}
+  <p>This is your dashboard. You are logged in as {{ user.username }}.</p>
+  
+  {# Add link to create farm page #}
+  <p><a href="{% url 'core:create_farm' %}">Add a New Farm</a></p>
+
+  {# Display list of existing farms #}
+  <h2>Your Farms</h2>
+  {% if farms %}
+    <ul>
+      {% for farm in farms %}
+        <li>
+          {# Make the farm name a link to its detail page #}
+          <a href="{% url 'core:farm_detail' farm.id %}">{{ farm.name }}</a>
+          {# Add links to view/edit/delete farm later #}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>You haven't added any farms yet.</p>
+  {% endif %}
+
+{% endblock %} 

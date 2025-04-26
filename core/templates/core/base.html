@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Mango Surveillance Hub{% endblock %}</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        nav { margin-bottom: 1em; }
+        nav a { margin-right: 1em; }
+        .errorlist { color: red; list-style-type: none; padding-left: 0; }
+    </style>
+</head>
+<body>
+    <nav>
+        {% if user.is_authenticated %}
+            <span>Welcome, {{ user.username }}!</span>
+            | <a href="{% url 'core:home' %}">Home</a>
+            | <a href="{% url 'core:calculator' %}">Calculator</a>
+            | <a href="{% url 'core:profile' %}">Profile</a>
+            <form method="post" action="{% url 'core:logout' %}" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" style="background:none; border:none; padding:0; color:blue; text-decoration:underline; cursor:pointer;">Logout</button>
+            </form>
+            {# Add other links for authenticated users later #}
+        {% else %}
+            <a href="{% url 'core:login' %}">Login</a>
+            <a href="{% url 'core:signup' %}">Sign Up</a>
+        {% endif %}
+    </nav>
+
+    <h1>{% block heading %}{% endblock %}</h1>
+
+    {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+                <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+
+</body>
+</html> 
