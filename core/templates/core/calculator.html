@@ -1,49 +1,87 @@
 {% extends 'core/base.html' %}
 
 {% block title %}Surveillance Calculator{% endblock %}
-
-{% block heading %}Surveillance Effort Calculator{% endblock %}
+{% block heading %}Calculate Required Surveillance{% endblock %}
 
 {% block content %}
-  <p>Select a farm to calculate the required surveillance effort.</p>
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header text-white" style="background-color: #0d6efd;">
+                 <h4 class="mb-0">Calculate Required Surveillance</h4>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">This tool will help you determine how many plants to survey on your property based on selected parameters.</p>
 
-  <form method="get" action="{% url 'core:calculator' %}" class="row g-3 align-items-center mb-4">
-    <div class="col-auto">
-        <label for="farm_id" class="col-form-label">Select Farm:</label>
-    </div>
-    <div class="col-auto">
-        <select name="farm_id" id="farm_id" class="form-select" required>
-          <option value="">---------</option>
-          {% for farm in farms %}
-            <option value="{{ farm.id }}" {% if selected_farm and selected_farm.id == farm.id %}selected{% endif %}>
-              {{ farm.name }}
-            </option>
-          {% endfor %}
-        </select>
-    </div>
-    <div class="col-auto">
-        <button type="submit" class="btn btn-success">Calculate</button>
-    </div>
-  </form>
+                <form method="get" action="{% url 'core:calculator' %}" class="mb-4">
+                    {# No need for csrf_token in GET form #}
+                    
+                    {# Use form rendering #}
+                    <div class="mb-3">
+                        <label for="{{ form.farm.id_for_label }}" class="form-label fw-bold">{{ form.farm.label }}:</label>
+                        {{ form.farm.errors }}
+                        <select name="{{ form.farm.name }}" id="{{ form.farm.id_for_label }}" class="form-select" required>
+                            {% for farm_choice in form.farm %}
+                                {{ farm_choice }}
+                            {% endfor %}
+                        </select>
+                    </div>
 
-  {% if calculation_results %}
-    <hr>
-    <h2>Results for {{ selected_farm.name }}</h2>
-    {% if calculation_results.error %}
-      <div class="alert alert-warning" role="alert">{{ calculation_results.error }}</div>
-    {% else %}
-      <ul>
-        <li>Total Plants on Farm: {{ calculation_results.total_plants_on_farm }}</li>
-        <li>Calculated Confidence Level: {{ calculation_results.confidence_level }}%</li>
-        <li><strong>Required Plants to Survey:</strong> {{ calculation_results.required_plants_to_survey }}</li>
-        {% if calculation_results.survey_frequency %}
-          <li>Survey Frequency: Approx. 1 plant in every {{ calculation_results.survey_frequency }} plants</li>
-        {% endif %}
-      </ul>
-      <p><em>Note: This is a placeholder calculation. Actual methodology may vary.</em></p>
-    {% endif %}
-  {% elif request.GET.farm_id %}
-      <div class="alert alert-info" role="alert">Could not calculate for the selected farm. Please ensure farm details (size, stocking rate) are complete.</div>
-  {% endif %}
+                     <div class="mb-3">
+                        <label for="{{ form.confidence_level.id_for_label }}" class="form-label fw-bold">{{ form.confidence_level.label }}:</label>
+                        {{ form.confidence_level.errors }}
+                        <select name="{{ form.confidence_level.name }}" id="{{ form.confidence_level.id_for_label }}" class="form-select">
+                             {% for choice in form.confidence_level %}
+                                {{ choice }}
+                            {% endfor %}
+                        </select>
+                         <div class="form-text">Higher confidence requires checking more plants.</div>
+                    </div>
 
+                    <div class="mb-3">
+                        <label for="{{ form.season.id_for_label }}" class="form-label fw-bold">{{ form.season.label }}:</label>
+                         {{ form.season.errors }}
+                        <select name="{{ form.season.name }}" id="{{ form.season.id_for_label }}" class="form-select">
+                             {% for choice in form.season %}
+                                {{ choice }}
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Season affects the assumed pest/disease prevalence.</div>
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Calculate Surveillance Plan</button>
+                    </div>
+                </form>
+
+                {# Display results section #}
+                {% if calculation_results %}
+                    <hr>
+                    <h5>Results for: {{ selected_farm.name }}</h5>
+                    {% if calculation_results.error %}
+                    <div class="alert alert-warning" role="alert">{{ calculation_results.error }}</div>
+                    {% else %}
+                    <div class="alert alert-success" role="alert">
+                         <h6 class="alert-heading">Recommendation:</h6>
+                         <ul class="mb-1">
+                            <li><strong>Required Plants to Survey:</strong> {{ calculation_results.required_plants_to_survey }}</li>
+                            {% if calculation_results.survey_frequency %}
+                            <li>Survey Frequency: Approx. 1 plant in every {{ calculation_results.survey_frequency }} plants</li>
+                            {% endif %}
+                        </ul>
+                        <hr>
+                        <p class="small mb-0 text-muted">
+                            Calculation based on: 
+                            {{ calculation_results.N }} total plants, 
+                            {{ calculation_results.confidence_level_percent }}% confidence, 
+                            {{ calculation_results.season }} season (assuming {{ calculation_results.p|floatformat:0 }}% prevalence), 
+                            5% margin of error.
+                        </p>
+                    </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %} 

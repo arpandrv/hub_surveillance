@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.core.exceptions import ValidationError
-from .models import Grower, Farm, PlantPart, Pest, SurveillanceRecord
+from .models import Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region
 
 class SignUpForm(forms.ModelForm):
     # Fields for the User model
@@ -40,10 +40,35 @@ class SignUpForm(forms.ModelForm):
         return user 
 
 class FarmForm(forms.ModelForm):
+    # Add Region field with limited queryset as per image
+    # Note: This assumes 'Northern Territory' and potential others exist in the DB
+    region = forms.ModelChoiceField(
+        queryset=Region.objects.filter(name__in=['Northern Territory']), # Limit choices
+        empty_label=None, # No empty choice needed if required
+        required=True
+    )
+    # Add checkbox for address - this doesn't map directly to a model field
+    # It will control display logic in the template via JavaScript (to be added)
+    has_exact_address = forms.BooleanField(required=False, label="Do you have an exact street address for this farm?", initial=False)
+
     class Meta:
         model = Farm
-        # Remove plant_type from the user-facing form fields
-        fields = ['name', 'size_hectares', 'stocking_rate', 'location_description'] 
+        fields = [
+            'name', 
+            'region',
+            # has_exact_address - not a model field 
+            'location_description',
+            'size_hectares', 
+            'stocking_rate', 
+            'distribution_pattern'
+        ]
+        widgets = {
+            'location_description': forms.Textarea(attrs={'rows': 3, 'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'}),
+        }
+        labels = {
+            'location_description': 'General Location (Optional)',
+            'stocking_rate': 'Stocking Rate (plants per hectare)'
+        }
 
 class SurveillanceRecordForm(forms.ModelForm):
     plant_parts_checked = forms.ModelMultipleChoiceField(
@@ -112,3 +137,37 @@ class GrowerProfileEditForm(forms.ModelForm):
     class Meta:
         model = Grower
         fields = ['farm_name', 'contact_number'] # Fields from Grower model 
+
+SEASON_CHOICES = [
+    ('Wet', 'Wet Season (Approx. Nov-Apr)'),
+    ('Dry', 'Dry Season (Approx. May-Oct)'),
+    ('Flowering', 'Flowering Period (Within Dry Season)'),
+]
+
+CONFIDENCE_CHOICES = [
+    (90, '90%'),
+    (95, '95% - Standard'),
+    (99, '99% - High Confidence'),
+]
+
+class CalculatorForm(forms.Form):
+    farm = forms.ModelChoiceField(
+        queryset=Farm.objects.none(), # Queryset set dynamically in the view
+        label="Select Your Farm",
+        empty_label="--------- Select a Farm ---------"
+    )
+    confidence_level = forms.ChoiceField(
+        choices=CONFIDENCE_CHOICES, 
+        initial=95, 
+        label="Desired Confidence Level"
+    )
+    season = forms.ChoiceField(
+        choices=SEASON_CHOICES, 
+        initial='Wet', # Default to higher risk
+        label="Select Current Season/Period"
+    )
+
+    def __init__(self, grower, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Populate farm choices based on the logged-in grower
+        self.fields['farm'].queryset = Farm.objects.filter(owner=grower) 

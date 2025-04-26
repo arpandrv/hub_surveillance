@@ -1,68 +1,147 @@
 {% extends 'core/base.html' %}
 
-{# Make title dynamic based on whether we are editing #}
 {% block title %}{% if farm %}Edit Farm: {{ farm.name }}{% else %}Create Farm{% endif %}{% endblock %}
 
-{# Make heading dynamic #}
-{% block heading %}{% if farm %}Edit Farm: {{ farm.name }}{% else %}Add a New Farm{% endif %}{% endblock %}
+{% block heading %}{# No main heading needed here #}{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-8 offset-md-2">
-        <form method="post">
-            {% csrf_token %}
-            
-            {# Display non-field errors #}
-            {% if form.non_field_errors %}
-            <div class="alert alert-danger">
-                {% for error in form.non_field_errors %}
-                <p class="mb-0">{{ error }}</p>
-                {% endfor %}
+<div class="row justify-content-center">
+    <div class="col-lg-8 col-md-10">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header text-white" style="background-color: #0d6efd;">
+                <h4 class="mb-0">{% if farm %}Edit Farm{% else %}Create Farm{% endif %}</h4>
             </div>
-            {% endif %}
-
-            {# Display form fields #}
-            {% for field in form %}
-            <div class="mb-3">
-                <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
-                {# Handle different widget types #}
-                {% if field.field.widget.input_type == 'select' %}
-                    <select name="{{ field.name }}" id="{{ field.id_for_label }}" class="form-select {% if field.errors %}is-invalid{% endif %}" {% if field.field.required %}required{% endif %}>
-                        {% for value, text in field.field.widget.choices %}
-                            <option value="{{ value }}" {% if field.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    
+                    {# Display non-field errors #}
+                    {% if form.non_field_errors %}
+                    <div class="alert alert-danger small">
+                        {% for error in form.non_field_errors %}
+                        <p class="mb-0">{{ error }}</p>
                         {% endfor %}
-                    </select>
-                {% elif field.field.widget.input_type == 'textarea' %}
-                    <textarea name="{{ field.name }}" id="{{ field.id_for_label }}" class="form-control {% if field.errors %}is-invalid{% endif %}" rows="3">{{ field.value|default:'' }}</textarea>
-                {% else %}
-                    <input type="{{ field.field.widget.input_type }}" 
-                           name="{{ field.name }}" 
-                           id="{{ field.id_for_label }}" 
-                           class="form-control {% if field.errors %}is-invalid{% endif %}" 
-                           value="{{ field.value|default:'' }}" 
-                           {% if field.field.widget.input_type == 'number' %}step="any"{% endif %} {# Allow decimals for number fields #}
-                           {% if field.field.required %}required{% endif %}>
-                {% endif %}
-                {% if field.help_text %}
-                    <div class="form-text">{{ field.help_text }}</div>
-                {% endif %}
-                {% if field.errors %}
-                    <div class="invalid-feedback">
-                        {{ field.errors|striptags }}
                     </div>
-                {% endif %}
+                    {% endif %}
+
+                    {# Farm Name #}
+                    <div class="mb-3">
+                        <label for="{{ form.name.id_for_label }}" class="form-label fw-bold">{{ form.name.label }}:</label>
+                        <input type="text" name="{{ form.name.name }}" id="{{ form.name.id_for_label }}" class="form-control {% if form.name.errors %}is-invalid{% endif %}" value="{{ form.name.value|default:'' }}" required>
+                        {% if form.name.errors %}<div class="invalid-feedback">{{ form.name.errors|striptags }}</div>{% endif %}
+                    </div>
+
+                    {# Region #}
+                    <div class="mb-3">
+                        <label for="{{ form.region.id_for_label }}" class="form-label fw-bold">{{ form.region.label }}:</label>
+                        <select name="{{ form.region.name }}" id="{{ form.region.id_for_label }}" class="form-select {% if form.region.errors %}is-invalid{% endif %}" required>
+                            {# Value comes from the form queryset #}
+                            {% for value, text in form.region.field.choices %}
+                            <option value="{{ value }}" {% if form.region.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Only regions relevant to Northern Australia are shown.</div>
+                        {% if form.region.errors %}<div class="invalid-feedback">{{ form.region.errors|striptags }}</div>{% endif %}
+                    </div>
+
+                    {# Address Toggle and Location Description #}
+                    {# Note: JS needed to show/hide General Location based on checkbox #}
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" name="{{ form.has_exact_address.name }}" id="{{ form.has_exact_address.id_for_label }}" class="form-check-input" {% if form.has_exact_address.value %}checked{% endif %}>
+                        <label for="{{ form.has_exact_address.id_for_label }}" class="form-check-label fw-bold">{{ form.has_exact_address.label }}</label>
+                    </div>
+
+                    <div class="alert alert-secondary small mb-3" role="alert" id="general-location-help">
+                        No problem! You can map your farm's boundary precisely using GPS later via the 'Map Boundary' option on the farm details page. For now, you can leave the address field blank or add a general location description below if you wish.
+                    </div>
+
+                    <div class="mb-3" id="general-location-field">
+                        <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
+                        <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" class="form-control {% if form.location_description.errors %}is-invalid{% endif %}" rows="2" placeholder="{{ form.location_description.field.widget.attrs.placeholder }}">{{ form.location_description.value|default:'' }}</textarea>
+                        <div class="form-text">e.g., "Near Katherine River", "Smith Property via XYZ Road"</div>
+                        {% if form.location_description.errors %}<div class="invalid-feedback">{{ form.location_description.errors|striptags }}</div>{% endif %}
+                    </div>
+
+                    {# Size and Stocking Rate #}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="{{ form.size_hectares.id_for_label }}" class="form-label fw-bold">{{ form.size_hectares.label }}:</label>
+                            <input type="number" name="{{ form.size_hectares.name }}" id="{{ form.size_hectares.id_for_label }}" class="form-control {% if form.size_hectares.errors %}is-invalid{% endif %}" value="{{ form.size_hectares.value|default:'' }}" step="any">
+                             <div class="form-text">Total farm size in hectares</div>
+                            {% if form.size_hectares.errors %}<div class="invalid-feedback">{{ form.size_hectares.errors|striptags }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-6">
+                             <label for="{{ form.stocking_rate.id_for_label }}" class="form-label fw-bold">{{ form.stocking_rate.label }}:</label>
+                            <input type="number" name="{{ form.stocking_rate.name }}" id="{{ form.stocking_rate.id_for_label }}" class="form-control {% if form.stocking_rate.errors %}is-invalid{% endif %}" value="{{ form.stocking_rate.value|default:'' }}" step="1">
+                            <div class="form-text">Number of plants per hectare</div>
+                            {% if form.stocking_rate.errors %}<div class="invalid-feedback">{{ form.stocking_rate.errors|striptags }}</div>{% endif %}
+                        </div>
+                    </div>
+
+                    {# Distribution Pattern #}
+                     <div class="mb-3">
+                        <label for="{{ form.distribution_pattern.id_for_label }}" class="form-label fw-bold">Plant Distribution Pattern:</label>
+                        <select name="{{ form.distribution_pattern.name }}" id="{{ form.distribution_pattern.id_for_label }}" class="form-select {% if form.distribution_pattern.errors %}is-invalid{% endif %}">
+                            {% for value, text in form.distribution_pattern.field.choices %}
+                            <option value="{{ value }}" {% if form.distribution_pattern.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
+                            {% endfor %}
+                        </select>
+                        {% if form.distribution_pattern.errors %}<div class="invalid-feedback">{{ form.distribution_pattern.errors|striptags }}</div>{% endif %}
+                    </div>
+                    
+                    {# Plant Types (Display Only - Set in View) #}
+                     <div class="mb-3">
+                        <label class="form-label fw-bold">Plant Types:</label>
+                        <div class="form-control bg-light">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="" id="mangoCheck" checked disabled>
+                                <label class="form-check-label" for="mangoCheck">
+                                    Mango
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-text">Currently only Mango surveillance is supported.</div>
+                    </div>
+
+                    {# Buttons #}
+                    <hr class="my-4">
+                    <div class="d-flex justify-content-end">
+                         {% if farm %}
+                            <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                         {% else %}
+                            <a href="{% url 'core:home' %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                         {% endif %}
+                        <button type="submit" class="btn btn-primary">{% if farm %}Save Farm{% else %}Save Farm{% endif %}</button> {# Button text is Save Farm in image #}
+                    </div>
+                </form>
             </div>
-            {% endfor %}
-            
-            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                 {% if farm %}
-                    <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-secondary me-md-2">Cancel</a>
-                 {% else %}
-                    <a href="{% url 'core:home' %}" class="btn btn-secondary me-md-2">Cancel</a>
-                 {% endif %}
-                <button type="submit" class="btn btn-success">{% if farm %}Save Changes{% else %}Save Farm{% endif %}</button>
-            </div>
-        </form>
+        </div>
     </div>
 </div>
+
+{# Basic JS Placeholder for address toggle #}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const addressCheckbox = document.getElementById('{{ form.has_exact_address.id_for_label }}');
+    const generalLocationField = document.getElementById('general-location-field');
+    const generalLocationHelp = document.getElementById('general-location-help');
+
+    function toggleLocationFields() {
+        if (addressCheckbox.checked) {
+            generalLocationField.style.display = 'none';
+            generalLocationHelp.style.display = 'none';
+        } else {
+            generalLocationField.style.display = 'block';
+            generalLocationHelp.style.display = 'block';
+        }
+    }
+
+    if (addressCheckbox) {
+        addressCheckbox.addEventListener('change', toggleLocationFields);
+        // Initial state
+        toggleLocationFields();
+    }
+});
+</script>
+
 {% endblock %} 

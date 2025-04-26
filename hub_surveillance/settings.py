@@ -123,7 +123,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Redirect to home page after login (by default)
-LOGIN_REDIRECT_URL = 'core:home' 
-# Optional: Redirect to login page if user tries to access restricted page
+# Redirect to dashboard page after login
+LOGIN_REDIRECT_URL = 'core:dashboard' 
+# Redirect to login page if user tries to access restricted page
 LOGIN_URL = 'core:login' 

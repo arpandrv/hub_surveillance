@@ -13,6 +13,16 @@ class Grower(models.Model):
         # Use the user's username for a more informative string representation
         return f"{self.user.username}'s Profile ({self.farm_name})"
 
+# Add Region model
+class Region(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    # Add other region-specific fields later if needed (e.g., climate_zone, risk_factor)
+    # Example climate zone from image:
+    climate_zone = models.CharField(max_length=50, blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+
 # Add PlantType model for extensibility
 class PlantType(models.Model):
     name = models.CharField(max_length=100, unique=True) # e.g., Mango, Avocado
@@ -52,13 +62,24 @@ class SurveillanceRecord(models.Model):
         return f"Survey on {self.farm.name} - {self.date_performed.strftime('%Y-%m-%d %H:%M')}"
 
 class Farm(models.Model):
-    owner = models.ForeignKey(Grower, on_delete=models.CASCADE, related_name='farms') # Link to Grower, one grower can have many farms
+    DISTRIBUTION_CHOICES = [
+        ('uniform', 'Uniform'),
+        ('clustered', 'Clustered'),
+        ('random', 'Random'),
+    ]
+
+    owner = models.ForeignKey(Grower, on_delete=models.CASCADE, related_name='farms')
     name = models.CharField(max_length=100)
-    # Add fields relevant to surveillance calculation
+    region = models.ForeignKey(Region, on_delete=models.SET_NULL, null=True, blank=True, related_name='farms') # Link to Region
     size_hectares = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Total farm size in hectares")
     stocking_rate = models.IntegerField(null=True, blank=True, help_text="Number of plants per hectare")
-    plant_type = models.ForeignKey(PlantType, on_delete=models.SET_NULL, null=True, blank=True, related_name='farms') # Link to the primary plant type
-    location_description = models.CharField(max_length=255, blank=True, null=True) # Simple text location for now
+    plant_type = models.ForeignKey(PlantType, on_delete=models.SET_NULL, null=True, blank=True, related_name='farms')
+    distribution_pattern = models.CharField(
+        max_length=20,
+        choices=DISTRIBUTION_CHOICES,
+        default='uniform'
+    )
+    location_description = models.CharField(max_length=255, blank=True, null=True, help_text="e.g., \"Near Katherine River\", \"Smith Property via XYZ Road\"") # Updated help text
 
     # Add a method to calculate total plants (useful later)
     def total_plants(self):

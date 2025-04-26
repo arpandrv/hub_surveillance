@@ -13,48 +13,71 @@
     </style>
 </head>
 <body>
-    {# Bootstrap Navbar - Fixed Top #}
-    <nav class="navbar navbar-expand-lg navbar-dark bg-success fixed-top">
+    {# Updated Bootstrap Navbar #}
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background-color: #0056b3;"> {# Dark blue background #}
         <div class="container-fluid">
-            <a class="navbar-brand" href="{% url 'core:home' %}">MangoHub</a>
+            {# Point brand link to dashboard #}
+            <a class="navbar-brand" href="{% url 'core:dashboard' %}">Mango Surveillance Tool</a> 
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
+                {% if user.is_authenticated %}
+                {# Left aligned links for authenticated users #}
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    {% if user.is_authenticated %}
-                        <li class="nav-item">
-                            <a class="nav-link active" aria-current="page" href="{% url 'core:home' %}">Home</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'core:calculator' %}">Calculator</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'core:profile' %}">Profile</a>
-                        </li>
-                    {% endif %}
+                    <li class="nav-item">
+                        {# Point to dashboard view #}
+                        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'core:dashboard' %}">Dashboard</a> 
+                    </li>
+                    <li class="nav-item">
+                         {# Point to myfarms view #}
+                        <a class="nav-link {% if request.resolver_match.url_name == 'myfarms' %}active{% endif %}" href="{% url 'core:myfarms' %}">My Farms</a>
+                    </li>
+                    <li class="nav-item">
+                        {# Mark active based on url name #}
+                        <a class="nav-link {% if request.resolver_match.url_name == 'calculator' %}active{% endif %}" href="{% url 'core:calculator' %}">Calculate</a>
+                    </li>
+                     <li class="nav-item">
+                        {# Mark active based on url name #}
+                        <a class="nav-link {% if request.resolver_match.url_name == 'record_list' %}active{% endif %}" href="{% url 'core:record_list' %}">Records</a>
+                    </li>
                 </ul>
-                {# Right aligned items #}
-                <div class="d-flex">
-                    {% if user.is_authenticated %}
-                        <span class="navbar-text me-3">
-                            Welcome, {{ user.username }}!
-                        </span>
-                        <form method="post" action="{% url 'core:logout' %}" class="d-inline">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-outline-light btn-sm">Logout</button>
-                        </form>
-                    {% else %}
-                        <a href="{% url 'core:login' %}" class="btn btn-outline-light me-2">Login</a>
-                        <a href="{% url 'core:signup' %}" class="btn btn-light">Sign Up</a>
-                    {% endif %}
-                </div>
+                {# Right aligned items for authenticated users #}
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                     <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownAccount" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Account ({{ user.username }})
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdownAccount">
+                            <li><a class="dropdown-item" href="{% url 'core:profile' %}">Edit Profile</a></li>
+                            <li><a class="dropdown-item" href="{% url 'core:password_change' %}">Change Password</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form method="post" action="{% url 'core:logout' %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="dropdown-item">Logout</button>
+                                </form>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+                {% else %}
+                {# Right aligned items for anonymous users #}
+                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                     <li class="nav-item">
+                         <a href="{% url 'core:login' %}" class="nav-link">Login</a>
+                     </li>
+                     <li class="nav-item">
+                          <a href="{% url 'core:signup' %}" class="nav-link">Register</a>
+                     </li>
+                 </ul>
+                {% endif %}
             </div>
         </div>
     </nav>
 
-    {# Main Content Area #}
-    <div class="container mt-4">
+    {# Main Content Area (Add some vertical padding) #}
+    <div class="container my-4">
         <h1 class="mb-4">{% block heading %}{% endblock %}</h1>
 
         {# Display messages with Bootstrap alerts #}
@@ -72,6 +95,14 @@
             {% endblock %}
         </main>
     </div>
+
+    {# Footer #}
+    <footer class="mt-auto py-3 bg-light text-center">
+        <div class="container">
+            <span class="text-muted">© {% now "Y" %} Mango Pest Surveillance System</span><br>
+            <small class="text-muted">Developed for HIT237 Building Interactive Software</small>
+        </div>
+    </footer>
 
     {# Add Bootstrap JS Bundle #}
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>

@@ -1,0 +1,37 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block heading %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="alert alert-info" role="alert">
+  Welcome to your Mango Surveillance Dashboard, {{ grower.user.username }}!
+</div>
+
+<p>This page will eventually show summaries and alerts.</p>
+
+{# Example placeholder content #}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5 class="card-title">My Farms</h5>
+                <p class="card-text fs-3">{{ grower.farms.count }}</p>
+                <a href="{% url 'core:myfarms' %}" class="btn btn-primary">View Farms</a>
+            </div>
+        </div>
+    </div>
+     <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5 class="card-title">Total Records</h5>
+                <p class="card-text fs-3">{{ grower.surveillance_records.count }}</p>
+                <a href="{% url 'core:record_list' %}" class="btn btn-primary">View Records</a>
+            </div>
+        </div>
+    </div>
+    {# Add more summary cards later #}
+</div>
+
+{% endblock %} 

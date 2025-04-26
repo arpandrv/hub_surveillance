@@ -3,7 +3,7 @@ from django.http import Http404
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm
+from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm, CalculatorForm
 from .models import Farm, PlantType, SurveillanceRecord, Grower
 from .calculations import calculate_surveillance_effort # Import from calculations
 
@@ -23,11 +23,9 @@ def signup_view(request):
 
 @login_required
 def home_view(request):
-    # Get the grower profile associated with the logged-in user
+    # This view now serves as the "My Farms" list
     grower = request.user.grower_profile
-    # Fetch all farms owned by this grower
     farms = Farm.objects.filter(owner=grower)
-    
     context = {
         'farms': farms
     }
@@ -105,24 +103,24 @@ def delete_farm_view(request, farm_id):
 @login_required
 def calculator_view(request):
     grower = request.user.grower_profile
-    farms = Farm.objects.filter(owner=grower)
-    selected_farm = None
     calculation_results = None
+    selected_farm_instance = None # Store the selected Farm object
+    form = CalculatorForm(grower, request.GET or None) # Initialize with GET data if available
 
-    if request.method == 'GET' and 'farm_id' in request.GET:
-        farm_id = request.GET.get('farm_id')
-        if farm_id:
-            try:
-                selected_farm = Farm.objects.get(id=farm_id, owner=grower)
-                calculation_results = calculate_surveillance_effort(selected_farm)
-            except Farm.DoesNotExist:
-                pass 
-            except ValueError:
-                 pass
+    if form.is_valid():
+        selected_farm_instance = form.cleaned_data['farm']
+        confidence = form.cleaned_data['confidence_level']
+        season = form.cleaned_data['season']
+        
+        calculation_results = calculate_surveillance_effort(
+            farm=selected_farm_instance, 
+            confidence_level_percent=confidence, # Pass cleaned data
+            season=season # Pass cleaned data
+        )
 
     context = {
-        'farms': farms,
-        'selected_farm': selected_farm,
+        'form': form,
+        'selected_farm': selected_farm_instance, # Pass the Farm object
         'calculation_results': calculation_results,
     }
     return render(request, 'core/calculator.html', context)
@@ -175,6 +173,25 @@ def profile_view(request):
         'profile_form': profile_form
     }
     return render(request, 'core/profile.html', context)
+
+@login_required
+def record_list_view(request):
+    grower = request.user.grower_profile
+    # Fetch all records performed by this grower, ordered by date descending
+    records = SurveillanceRecord.objects.filter(performed_by=grower).order_by('-date_performed')
+    
+    context = {
+        'records': records
+    }
+    return render(request, 'core/record_list.html', context)
+
+@login_required
+def dashboard_view(request):
+    grower = request.user.grower_profile # Get grower for potential future use
+    context = {
+        'grower': grower
+    }
+    return render(request, 'core/dashboard.html', context)
 
 # Login view is handled by Django's auth_views.LoginView in urls.py
 # Logout view is handled by Django's auth_views.LogoutView in urls.py

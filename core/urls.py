@@ -5,8 +5,9 @@ from . import views
 app_name = 'core' # Add app namespace
 
 urlpatterns = [
-    # Add the home view at the root path of the app
-    path('', views.home_view, name='home'), 
+    path('', views.dashboard_view, name='dashboard'), # Point root to dashboard
+    path('dashboard/', views.dashboard_view, name='dashboard'), # Explicit dashboard URL
+    path('myfarms/', views.home_view, name='myfarms'), # URL for the farm list (was home)
     path('signup/', views.signup_view, name='signup'),
     # Use Django's built-in LoginView, specifying our template
     path('login/', auth_views.LoginView.as_view(template_name='core/login.html'), name='login'),
@@ -43,4 +44,6 @@ urlpatterns = [
         ),
         name='password_change_done'
     ),
+    # Add URL for listing all records
+    path('records/', views.record_list_view, name='record_list'), 
 ] 
