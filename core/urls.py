@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, reverse_lazy
 from django.contrib.auth import views as auth_views
 from . import views
 
@@ -27,4 +27,20 @@ urlpatterns = [
     # Add URL for deleting a farm
     path('farms/<int:farm_id>/delete/', views.delete_farm_view, name='delete_farm'),
     path('profile/', views.profile_view, name='profile'), # Add profile URL
+    # Password Change
+    path(
+        'password_change/',
+        auth_views.PasswordChangeView.as_view(
+            template_name='core/password_change_form.html',
+            success_url=reverse_lazy('core:password_change_done') # Redirect here on success
+        ),
+        name='password_change'
+    ),
+    path(
+        'password_change/done/',
+        auth_views.PasswordChangeDoneView.as_view(
+            template_name='core/password_change_done.html'
+        ),
+        name='password_change_done'
+    ),
 ] 

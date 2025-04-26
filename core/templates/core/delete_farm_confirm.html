@@ -10,7 +10,7 @@
 
   <form method="post">
     {% csrf_token %}
-    <button type="submit" style="color: red; font-weight: bold;">Yes, Delete</button>
-    <a href="{% url 'core:farm_detail' farm.id %}" style="margin-left: 1em;">Cancel</a>
+    <button type="submit" class="btn btn-danger">Yes, Delete</button>
+    <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-secondary">Cancel</a>
   </form>
 {% endblock %} 

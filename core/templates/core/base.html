@@ -4,45 +4,76 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Mango Surveillance Hub{% endblock %}</title>
+    {# Add Bootstrap CSS #}
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <style>
-        body { font-family: sans-serif; margin: 2em; }
-        nav { margin-bottom: 1em; }
-        nav a { margin-right: 1em; }
+        /* Keep basic errorlist style for now, Bootstrap might override */
         .errorlist { color: red; list-style-type: none; padding-left: 0; }
+        body { padding-top: 56px; } /* Add padding for fixed navbar */
     </style>
 </head>
 <body>
-    <nav>
-        {% if user.is_authenticated %}
-            <span>Welcome, {{ user.username }}!</span>
-            | <a href="{% url 'core:home' %}">Home</a>
-            | <a href="{% url 'core:calculator' %}">Calculator</a>
-            | <a href="{% url 'core:profile' %}">Profile</a>
-            <form method="post" action="{% url 'core:logout' %}" style="display: inline;">
-                {% csrf_token %}
-                <button type="submit" style="background:none; border:none; padding:0; color:blue; text-decoration:underline; cursor:pointer;">Logout</button>
-            </form>
-            {# Add other links for authenticated users later #}
-        {% else %}
-            <a href="{% url 'core:login' %}">Login</a>
-            <a href="{% url 'core:signup' %}">Sign Up</a>
-        {% endif %}
+    {# Bootstrap Navbar - Fixed Top #}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-success fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{% url 'core:home' %}">MangoHub</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    {% if user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link active" aria-current="page" href="{% url 'core:home' %}">Home</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'core:calculator' %}">Calculator</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'core:profile' %}">Profile</a>
+                        </li>
+                    {% endif %}
+                </ul>
+                {# Right aligned items #}
+                <div class="d-flex">
+                    {% if user.is_authenticated %}
+                        <span class="navbar-text me-3">
+                            Welcome, {{ user.username }}!
+                        </span>
+                        <form method="post" action="{% url 'core:logout' %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-outline-light btn-sm">Logout</button>
+                        </form>
+                    {% else %}
+                        <a href="{% url 'core:login' %}" class="btn btn-outline-light me-2">Login</a>
+                        <a href="{% url 'core:signup' %}" class="btn btn-light">Sign Up</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
     </nav>
 
-    <h1>{% block heading %}{% endblock %}</h1>
+    {# Main Content Area #}
+    <div class="container mt-4">
+        <h1 class="mb-4">{% block heading %}{% endblock %}</h1>
 
-    {% if messages %}
-        <ul class="messages">
+        {# Display messages with Bootstrap alerts #}
+        {% if messages %}
             {% for message in messages %}
-                <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+                <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
             {% endfor %}
-        </ul>
-    {% endif %}
+        {% endif %}
 
-    <main>
-        {% block content %}
-        {% endblock %}
-    </main>
+        <main>
+            {% block content %}
+            {% endblock %}
+        </main>
+    </div>
 
+    {# Add Bootstrap JS Bundle #}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html> 

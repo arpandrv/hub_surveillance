@@ -5,25 +5,61 @@
 {% block heading %}Edit Your Profile{% endblock %}
 
 {% block content %}
-  {# Display messages #}
-  {% if messages %}
-      {% for message in messages %}
-          <p class="message {{ message.tags }}">{{ message }}</p>
-      {% endfor %}
-  {% endif %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        {# Display messages #}
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
 
-  <form method="post">
-      {% csrf_token %}
-      
-      <h2>Account Information</h2>
-      {{ user_form.as_p }}
-      
-      <h2>Grower Profile Information</h2>
-      {{ profile_form.as_p }}
-      
-      <button type="submit">Save Changes</button>
-  </form>
+        <form method="post">
+            {% csrf_token %}
+            
+            <div class="card mb-4">
+                <div class="card-header">Account Information</div>
+                <div class="card-body">
+                    {# Need to render manually or use crispy-forms for better Bootstrap integration #}
+                    {# Simple rendering for now: #}
+                    <div class="mb-3">
+                        <label for="{{ user_form.username.id_for_label }}" class="form-label">Username</label>
+                        <input type="text" name="{{ user_form.username.name }}" id="{{ user_form.username.id_for_label }}" class="form-control {% if user_form.username.errors %}is-invalid{% endif %}" value="{{ user_form.username.value|default:'' }}" required>
+                         {% if user_form.username.errors %}<div class="invalid-feedback">{{ user_form.username.errors|striptags }}</div>{% endif %}
+                    </div>
+                     <div class="mb-3">
+                        <label for="{{ user_form.email.id_for_label }}" class="form-label">Email</label>
+                        <input type="email" name="{{ user_form.email.name }}" id="{{ user_form.email.id_for_label }}" class="form-control {% if user_form.email.errors %}is-invalid{% endif %}" value="{{ user_form.email.value|default:'' }}" required>
+                         {% if user_form.email.errors %}<div class="invalid-feedback">{{ user_form.email.errors|striptags }}</div>{% endif %}
+                    </div>
+                </div>
+            </div>
 
-  {# Optional: Link to change password #}
-  {# <p><a href="{% url 'password_change' %}">Change Password</a></p> #}
+            <div class="card mb-4">
+                <div class="card-header">Grower Profile Information</div>
+                 <div class="card-body">
+                     <div class="mb-3">
+                        <label for="{{ profile_form.farm_name.id_for_label }}" class="form-label">Farm/Business Name</label>
+                        <input type="text" name="{{ profile_form.farm_name.name }}" id="{{ profile_form.farm_name.id_for_label }}" class="form-control {% if profile_form.farm_name.errors %}is-invalid{% endif %}" value="{{ profile_form.farm_name.value|default:'' }}" required>
+                         {% if profile_form.farm_name.errors %}<div class="invalid-feedback">{{ profile_form.farm_name.errors|striptags }}</div>{% endif %}
+                    </div>
+                     <div class="mb-3">
+                        <label for="{{ profile_form.contact_number.id_for_label }}" class="form-label">Contact Number</label>
+                        <input type="text" name="{{ profile_form.contact_number.name }}" id="{{ profile_form.contact_number.id_for_label }}" class="form-control {% if profile_form.contact_number.errors %}is-invalid{% endif %}" value="{{ profile_form.contact_number.value|default:'' }}">
+                         {% if profile_form.contact_number.errors %}<div class="invalid-feedback">{{ profile_form.contact_number.errors|striptags }}</div>{% endif %}
+                    </div>
+                 </div>
+            </div>
+            
+            <button type="submit" class="btn btn-success">Save Changes</button>
+        </form>
+
+        <hr class="my-4">
+        {# Link to change password #}
+        <p><a href="{% url 'core:password_change' %}" class="btn btn-warning">Change Password</a></p>
+    </div>
+</div>
 {% endblock %} 

@@ -21,8 +21,10 @@
   <h2>Surveillance Requirement (Placeholder Calculation)</h2>
   {% if calculation_results %}
     {% if calculation_results.error %}
-      <p style="color: red;">{{ calculation_results.error }}</p>
-      <p><a href="{% url 'core:edit_farm' farm.id %}">Edit farm details</a> to enable calculation.</p>
+      <div class="alert alert-warning" role="alert">
+        {{ calculation_results.error }}
+        <a href="{% url 'core:edit_farm' farm.id %}" class="alert-link">Edit farm details</a> to enable calculation.
+      </div>
     {% else %}
       <ul>
         <li>Calculated Confidence Level: {{ calculation_results.confidence_level }}%</li>
@@ -38,14 +40,15 @@
   {% endif %}
 
   <hr>
-  {# Add link/button to record surveillance #}
-  <p><a href="{% url 'core:record_surveillance' farm.id %}" role="button" style="font-weight: bold;">Record New Surveillance</a></p>
+  {# Button to record surveillance #}
+  <p><a href="{% url 'core:record_surveillance' farm.id %}" class="btn btn-primary">Record New Surveillance</a></p>
 
   {# Display Surveillance History #}
   <hr>
   <h2>Surveillance History</h2>
   {% if surveillance_records %}
-    <table border="1" style="width: 100%; border-collapse: collapse;">
+    <div class="table-responsive">
+      <table class="table table-striped table-bordered table-hover">
         <thead>
             <tr>
                 <th>Date Performed</th>
@@ -78,18 +81,16 @@
             </tr>
             {% endfor %}
         </tbody>
-    </table>
+      </table>
+    </div>
   {% else %}
     <p>No surveillance records found for this farm yet.</p>
   {% endif %}
 
   <hr>
   <p>
-    <a href="{% url 'core:home' %}">Back to Home</a>
-    | <a href="{% url 'core:edit_farm' farm.id %}">Edit Farm</a>
-    {# Add Delete link #}
-    | <a href="{% url 'core:delete_farm' farm.id %}" style="color: red;">Delete Farm</a>
+    <a href="{% url 'core:home' %}" class="btn btn-secondary btn-sm">Back to Home</a>
+    <a href="{% url 'core:edit_farm' farm.id %}" class="btn btn-outline-secondary btn-sm">Edit Farm</a>
+    <a href="{% url 'core:delete_farm' farm.id %}" class="btn btn-outline-danger btn-sm">Delete Farm</a>
   </p>
-  {# Add Delete link here later #}
-
 {% endblock %} 

@@ -7,40 +7,62 @@
 {% block heading %}{% if farm %}Edit Farm: {{ farm.name }}{% else %}Add a New Farm{% endif %}{% endblock %}
 
 {% block content %}
-  <form method="post">
-    {% csrf_token %}
-    
-    {# Display non-field errors #}
-    {% if form.non_field_errors %}
-      <div class="errorlist">
-        {% for error in form.non_field_errors %}
-          <p>{{ error }}</p>
-        {% endfor %}
-      </div>
-    {% endif %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <form method="post">
+            {% csrf_token %}
+            
+            {# Display non-field errors #}
+            {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}
+                <p class="mb-0">{{ error }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
 
-    {# Display form fields #}
-    {% for field in form %}
-      <p>
-        {{ field.label_tag }}<br>
-        {{ field }}
-        {% if field.help_text %}
-          <small style="color: grey">{{ field.help_text }}</small>
-        {% endif %}
-        {% for error in field.errors %}
-          <p style="color: red">{{ error }}</p>
-        {% endfor %}
-      </p>
-    {% endfor %}
-    
-    {# Make button text dynamic #}
-    <button type="submit">{% if farm %}Save Changes{% else %}Save Farm{% endif %}</button>
-  </form>
-  
-  {# Add a link back to farm detail if editing, or home if creating #}
-  {% if farm %}
-    <p><a href="{% url 'core:farm_detail' farm.id %}">Cancel and View Details</a></p>
-  {% else %}
-    <p><a href="{% url 'core:home' %}">Cancel and Go Home</a></p>
-  {% endif %}
+            {# Display form fields #}
+            {% for field in form %}
+            <div class="mb-3">
+                <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                {# Handle different widget types #}
+                {% if field.field.widget.input_type == 'select' %}
+                    <select name="{{ field.name }}" id="{{ field.id_for_label }}" class="form-select {% if field.errors %}is-invalid{% endif %}" {% if field.field.required %}required{% endif %}>
+                        {% for value, text in field.field.widget.choices %}
+                            <option value="{{ value }}" {% if field.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
+                        {% endfor %}
+                    </select>
+                {% elif field.field.widget.input_type == 'textarea' %}
+                    <textarea name="{{ field.name }}" id="{{ field.id_for_label }}" class="form-control {% if field.errors %}is-invalid{% endif %}" rows="3">{{ field.value|default:'' }}</textarea>
+                {% else %}
+                    <input type="{{ field.field.widget.input_type }}" 
+                           name="{{ field.name }}" 
+                           id="{{ field.id_for_label }}" 
+                           class="form-control {% if field.errors %}is-invalid{% endif %}" 
+                           value="{{ field.value|default:'' }}" 
+                           {% if field.field.widget.input_type == 'number' %}step="any"{% endif %} {# Allow decimals for number fields #}
+                           {% if field.field.required %}required{% endif %}>
+                {% endif %}
+                {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text }}</div>
+                {% endif %}
+                {% if field.errors %}
+                    <div class="invalid-feedback">
+                        {{ field.errors|striptags }}
+                    </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            
+            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                 {% if farm %}
+                    <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-secondary me-md-2">Cancel</a>
+                 {% else %}
+                    <a href="{% url 'core:home' %}" class="btn btn-secondary me-md-2">Cancel</a>
+                 {% endif %}
+                <button type="submit" class="btn btn-success">{% if farm %}Save Changes{% else %}Save Farm{% endif %}</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %} 
