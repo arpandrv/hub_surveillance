@@ -152,18 +152,19 @@ CONFIDENCE_CHOICES = [
 
 class CalculatorForm(forms.Form):
     farm = forms.ModelChoiceField(
-        queryset=Farm.objects.none(),  # Queryset set dynamically in the view
+        queryset=Farm.objects.none(),
         label="Select Your Farm",
-        empty_label="--------- Select a Farm ---------"
+        empty_label="-- Please Select a Farm --",
+        required=False,  # Don't show required validation until form submission
     )
     confidence_level = forms.ChoiceField(
-        choices=CONFIDENCE_CHOICES, 
-        initial=95, 
+        choices=CONFIDENCE_CHOICES,  # Keep the original choices without empty option
+        required=False,  # Don't show required validation until form submission
         label="Desired Confidence Level"
     )
     season = forms.ChoiceField(
-        choices=SEASON_CHOICES, 
-        initial='Wet',  # Default to higher risk
+        choices=SEASON_CHOICES,  # Keep the original choices without empty option
+        required=False,  # Don't show required validation until form submission
         label="Select Current Season/Period"
     )
 
@@ -171,23 +172,26 @@ class CalculatorForm(forms.Form):
         # Get the initial data, if any
         initial = kwargs.get('initial', {})
         
-        # If a farm is selected, update other defaults
+        # If a farm is selected in initial data, we can set defaults
         if 'farm' in initial and initial['farm']:
             farm = initial['farm']
-            # Set confidence level default to 95% if not specified
-            if 'confidence_level' not in initial:
-                initial['confidence_level'] = 95
-            # Set season default to current season if not specified
-            if 'season' not in initial:
-                try:
-                    # Use the farm's current_season method if available
-                    initial['season'] = farm.current_season()
-                except AttributeError:
-                    # Fall back to 'Wet' if method doesn't exist
-                    initial['season'] = 'Wet'
             
-            # Update the kwargs with our modified initial data
-            kwargs['initial'] = initial
+            # Only set these defaults if explicitly coming from a link
+            # Don't override any user selections from the form
+            if kwargs.get('data') is None:
+                # Set confidence level default to 95% if not specified
+                if 'confidence_level' not in initial:
+                    initial['confidence_level'] = 95
+                # Set season default to current season if not specified
+                if 'season' not in initial:
+                    try:
+                        # Use the farm's current_season method if available
+                        initial['season'] = farm.current_season()
+                    except AttributeError:
+                        pass  # No default
+                
+                # Update the kwargs with our modified initial data
+                kwargs['initial'] = initial
         
         super().__init__(*args, **kwargs)
         
@@ -197,4 +201,20 @@ class CalculatorForm(forms.Form):
         # Additional setup for better user experience
         self.fields['farm'].widget.attrs.update({'class': 'form-select form-select-lg'})
         self.fields['confidence_level'].widget.attrs.update({'class': 'form-select'})
-        self.fields['season'].widget.attrs.update({'class': 'form-select'}) 
+        self.fields['season'].widget.attrs.update({'class': 'form-select'})
+    
+    def clean(self):
+        """Validate form only when actually submitted with data."""
+        cleaned_data = super().clean()
+        
+        # Only validate when the form is actually submitted
+        if self.is_bound and self.data:
+            # Now enforce required fields
+            if not cleaned_data.get('farm'):
+                self.add_error('farm', 'Please select a farm.')
+            if not cleaned_data.get('confidence_level'):
+                self.add_error('confidence_level', 'Please select a confidence level.')
+            if not cleaned_data.get('season'):
+                self.add_error('season', 'Please select a season.')
+                
+        return cleaned_data 

@@ -214,13 +214,16 @@ def calculator_view(request):
     grower = request.user.grower_profile
     calculation_results = None
     selected_farm_instance = None
+    form_submitted = False
     
     # Get initial farm_id from query params if available
     initial_farm_id = request.GET.get('farm')
     
-    # Process the form if data was submitted
-    if request.GET:  # Check if there are any GET parameters
+    # Check if there's actual form submission (all parameters present)
+    if request.GET and 'farm' in request.GET and 'confidence_level' in request.GET and 'season' in request.GET:
+        form_submitted = True
         form = CalculatorForm(grower, request.GET)
+        
         if form.is_valid():
             selected_farm_instance = form.cleaned_data['farm']
             confidence = form.cleaned_data['confidence_level']
@@ -262,8 +265,14 @@ def calculator_view(request):
                     request, 
                     f"Surveillance calculation for {selected_farm_instance.name} saved: {calculation_results['required_plants_to_survey']} plants."
                 )
-    # Initialize form with initial farm if provided
-    elif initial_farm_id:
+        else:
+            # If form is invalid after submission, show errors
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f"{form.fields[field].label}: {error}")
+    
+    # Initialize form with default farm if NOT submitting and farm ID is in URL
+    elif initial_farm_id and not form_submitted:
         try:
             initial_farm = Farm.objects.get(id=initial_farm_id, owner=grower)
             # For new form, use defaults from the farm
@@ -279,12 +288,14 @@ def calculator_view(request):
         except Farm.DoesNotExist:
             form = CalculatorForm(grower)
     else:
-        form = CalculatorForm(grower)  # Just initialize an empty form
+        # Empty form with no defaults
+        form = CalculatorForm(grower)
 
     context = {
         'form': form,
         'selected_farm': selected_farm_instance,
         'calculation_results': calculation_results,
+        'form_submitted': form_submitted,
     }
     
     return render(request, 'core/calculator.html', context)
