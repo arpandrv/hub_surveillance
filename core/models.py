@@ -35,6 +35,12 @@ class Region(models.Model):
     """
     name = models.CharField(max_length=100, unique=True)
     climate_zone = models.CharField(max_length=50, blank=True, null=True)
+    state_abbreviation = models.CharField(
+        max_length=3, 
+        blank=True, 
+        null=True, 
+        help_text="State/Territory abbreviation (e.g., NT, QLD, WA)"
+    )
 
     def __str__(self):
         return self.name

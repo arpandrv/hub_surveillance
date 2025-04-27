@@ -12,9 +12,14 @@
                 <h4 class="mb-0">{% if farm %}Edit Farm{% else %}Create Farm{% endif %}</h4>
             </div>
             <div class="card-body">
-                <form method="post" novalidate>
+                <form method="post" novalidate id="farm-form">
                     {% csrf_token %}
                     
+                    {# Hidden input to store selected Geoscape ID #}
+                    <input type="hidden" name="geoscape_address_id" id="id_geoscape_address_id" value="{{ form.instance.geoscape_address_id|default:'' }}">
+                    {# Hidden input to store the full selected address text #}
+                    <input type="hidden" name="formatted_address" id="id_formatted_address" value="{{ form.instance.formatted_address|default:'' }}">
+
                     {# Display non-field errors #}
                     {% if form.non_field_errors %}
                     <div class="alert alert-danger small">
@@ -31,7 +36,7 @@
                         {% if form.name.errors %}<div class="invalid-feedback">{{ form.name.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Region #}
+                    {# Region - Needed for API call #}
                     <div class="mb-3">
                         <label for="{{ form.region.id_for_label }}" class="form-label fw-bold">{{ form.region.label }}:</label>
                         <select name="{{ form.region.name }}" id="{{ form.region.id_for_label }}" class="form-select {% if form.region.errors %}is-invalid{% endif %}" required>
@@ -44,21 +49,34 @@
                         {% if form.region.errors %}<div class="invalid-feedback">{{ form.region.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Address Toggle and Location Description #}
-                    {# Note: JS needed to show/hide General Location based on checkbox #}
+                    {# Address Toggle Checkbox #}
                     <div class="mb-3 form-check">
-                        <input type="checkbox" name="{{ form.has_exact_address.name }}" id="{{ form.has_exact_address.id_for_label }}" class="form-check-input" {% if form.has_exact_address.value %}checked{% endif %}>
-                        <label for="{{ form.has_exact_address.id_for_label }}" class="form-check-label fw-bold">{{ form.has_exact_address.label }}</label>
+                        {# Use the model field value for initial state #}
+                        <input type="checkbox" name="has_exact_address" id="id_has_exact_address" class="form-check-input" {% if form.instance.has_exact_address %}checked{% endif %}>
+                        <label for="id_has_exact_address" class="form-check-label fw-bold">Do you have an exact street address for this farm?</label>
                     </div>
 
-                    <div class="alert alert-secondary small mb-3" role="alert" id="general-location-help">
-                        No problem! You can map your farm's boundary precisely using GPS later via the 'Map Boundary' option on the farm details page. For now, you can leave the address field blank or add a general location description below if you wish.
+                    {# Address Search Input and Suggestions - Shown/Hidden by JS #}
+                    <div class="mb-3" id="exact-address-section" style="display: none;"> {# Initially hidden #}
+                        <label for="address_search_input" class="form-label fw-bold">Enter Street Address:</label>
+                        <input type="text" id="address_search_input" class="form-control" placeholder="Start typing address..." autocomplete="off" value="{{ form.instance.formatted_address|default:'' }}">
+                         <div id="suggestions_list" class="list-group mt-1 position-absolute" style="z-index: 1000;">
+                            {# Suggestions will be loaded here by JS #}
+                        </div>
+                        <div class="form-text">Select a suggested address to automatically parse details.</div>
                     </div>
 
-                    <div class="mb-3" id="street-address-field">
-                        <label for="{{ form.street_address.id_for_label }}" class="form-label fw-bold">{{ form.street_address.label }}:</label>
-                        <input type="text" name="{{ form.street_address.name }}" id="{{ form.street_address.id_for_label }}" class="form-control {% if form.street_address.errors %}is-invalid{% endif %}" value="{{ form.street_address.value|default:'' }}">
-                        {% if form.street_address.errors %}<div class="invalid-feedback">{{ form.street_address.errors|striptags }}</div>{% endif %}
+                     {# General Location Section - Shown/Hidden by JS #}
+                    <div id="general-location-section" style="display: block;"> {# Initially shown #}
+                        <div class="alert alert-secondary small mb-3" role="alert">
+                            No problem! You can map your farm's boundary precisely using GPS later via the 'Map Boundary' option on the farm details page. For now, you can leave the address field blank or add a general location description below if you wish.
+                        </div>
+                        <div class="mb-3">
+                            <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
+                            <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" class="form-control {% if form.location_description.errors %}is-invalid{% endif %}" rows="2" placeholder="{{ form.location_description.field.widget.attrs.placeholder }}">{{ form.location_description.value|default:'' }}</textarea>
+                            <div class="form-text">e.g., "Near Katherine River", "Smith Property via XYZ Road"</div>
+                            {% if form.location_description.errors %}<div class="invalid-feedback">{{ form.location_description.errors|striptags }}</div>{% endif %}
+                        </div>
                     </div>
 
                     {# Size and Stocking Rate #}
@@ -108,9 +126,9 @@
                          {% if farm %}
                             <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-outline-secondary me-2">Cancel</a>
                          {% else %}
-                            <a href="{% url 'core:home' %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                            <a href="{% url 'core:myfarms' %}" class="btn btn-outline-secondary me-2">Cancel</a> {# Point cancel to myfarms #}
                          {% endif %}
-                        <button type="submit" class="btn btn-primary">{% if farm %}Save Farm{% else %}Save Farm{% endif %}</button> {# Button text is Save Farm in image #}
+                        <button type="submit" class="btn btn-primary">{% if farm %}Save Farm{% else %}Save Farm{% endif %}</button> 
                     </div>
                 </form>
             </div>
@@ -118,29 +136,134 @@
     </div>
 </div>
 
-{# Basic JS Placeholder for address toggle #}
+{% endblock %}
+
+{% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const addressCheckbox = document.getElementById('{{ form.has_exact_address.id_for_label }}');
-    const streetAddressField = document.getElementById('street-address-field');
-    const generalLocationHelp = document.getElementById('general-location-help');
+    const addressCheckbox = document.getElementById('id_has_exact_address');
+    const exactAddressSection = document.getElementById('exact-address-section');
+    const generalLocationSection = document.getElementById('general-location-section');
+    const addressSearchInput = document.getElementById('address_search_input');
+    const suggestionsList = document.getElementById('suggestions_list');
+    const regionSelect = document.getElementById('{{ form.region.id_for_label }}');
+    const geoscapeIdInput = document.getElementById('id_geoscape_address_id');
+    const formattedAddressInput = document.getElementById('id_formatted_address');
+    let debounceTimer; // For debouncing API calls
 
-    function toggleLocationFields() {
+    function toggleAddressFields() {
         if (addressCheckbox.checked) {
-            streetAddressField.style.display = 'block';
-            generalLocationHelp.style.display = 'none';
+            exactAddressSection.style.display = 'block';
+            generalLocationSection.style.display = 'none';
         } else {
-            streetAddressField.style.display = 'none';
-            generalLocationHelp.style.display = 'block';
+            exactAddressSection.style.display = 'none';
+            generalLocationSection.style.display = 'block';
+            // Clear search and hidden fields if checkbox is unchecked
+            addressSearchInput.value = ''; 
+            geoscapeIdInput.value = '';
+            formattedAddressInput.value = '';
+            suggestionsList.innerHTML = ''; // Clear suggestions
         }
     }
 
+    async function fetchSuggestions() {
+        const query = addressSearchInput.value;
+        const regionId = regionSelect.value;
+        suggestionsList.innerHTML = ''; // Clear previous suggestions
+        geoscapeIdInput.value = ''; // Clear hidden ID unless a suggestion is selected
+        formattedAddressInput.value = '';
+
+        if (query.length < 3 || !regionId) {
+            suggestionsList.innerHTML = '<li class="list-group-item text-muted">Please select a region and type at least 3 characters.</li>';
+            return; // Don't search if query too short or no region
+        }
+
+        const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
+
+        try {
+            suggestionsList.innerHTML = '<li class="list-group-item text-muted">Searching...</li>'; // Indicate loading
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            suggestionsList.innerHTML = ''; // Clear loading/previous message
+
+            if (data.error) {
+                console.error('API Error:', data.error);
+                suggestionsList.innerHTML = `<li class="list-group-item text-danger">${data.error}</li>`;
+            } else if (data.suggestions && data.suggestions.length > 0) {
+                data.suggestions.forEach(item => {
+                    const li = document.createElement('a'); // Use anchor for better semantics
+                    li.href = '#'; // Prevent page jump
+                    li.classList.add('list-group-item', 'list-group-item-action');
+                    li.textContent = item.address;
+                    li.dataset.id = item.id; // Store ID in data attribute
+                    li.dataset.address = item.address;
+                    li.addEventListener('click', function(e) {
+                        e.preventDefault(); // Prevent anchor default action
+                        addressSearchInput.value = this.dataset.address; // Set input to full address
+                        geoscapeIdInput.value = this.dataset.id; // Store the ID
+                        formattedAddressInput.value = this.dataset.address; // Store full address
+                        suggestionsList.innerHTML = ''; // Clear suggestions after selection
+                    });
+                    suggestionsList.appendChild(li);
+                });
+            } else {
+                suggestionsList.innerHTML = '<li class="list-group-item text-muted">No suggestions found.</li>';
+            }
+        } catch (error) {
+            console.error('Fetch Error:', error);
+            suggestionsList.innerHTML = '<li class="list-group-item text-danger">Error fetching suggestions. Check console.</li>';
+        }
+    }
+
+    // Initial state based on checkbox value
     if (addressCheckbox) {
-        addressCheckbox.addEventListener('change', toggleLocationFields);
-        // Initial state
-        toggleLocationFields();
+        // Ensure DOM is fully loaded before toggling
+        setTimeout(function() {
+            toggleAddressFields();
+            console.log('Address checkbox state:', addressCheckbox.checked);
+            console.log('Address section visibility:', exactAddressSection.style.display);
+        }, 100);
+        addressCheckbox.addEventListener('change', function() {
+            toggleAddressFields();
+            console.log('Address checkbox changed to:', addressCheckbox.checked);
+            console.log('Address section visibility now:', exactAddressSection.style.display);
+        });
+    }
+
+    // Event listener for address input with debouncing
+    if (addressSearchInput && regionSelect) {
+        addressSearchInput.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            // Don't fetch if a geoscape ID is already selected (means user picked one)
+            if (!geoscapeIdInput.value) { 
+                 debounceTimer = setTimeout(fetchSuggestions, 300); // Wait 300ms after user stops typing
+            } else {
+                 // If user starts typing again after selecting, clear the selected ID
+                 geoscapeIdInput.value = '';
+                 formattedAddressInput.value = '';
+                 debounceTimer = setTimeout(fetchSuggestions, 300);
+            }
+        });
+        
+        // Also fetch suggestions if region changes while address field has text
+        regionSelect.addEventListener('change', function(){
+             if (addressSearchInput.value.length >= 3 && !geoscapeIdInput.value) {
+                 fetchSuggestions();
+             }
+        });
+
+        // Clear suggestions when input loses focus (optional)
+        document.addEventListener('click', function(event) {
+            // Check if the click is outside the search input and suggestion list
+            if (!addressSearchInput.contains(event.target) && !suggestionsList.contains(event.target)) {
+                suggestionsList.innerHTML = ''; // Clear suggestions
+            }
+        });
+
     }
 });
 </script>
-
 {% endblock %} 

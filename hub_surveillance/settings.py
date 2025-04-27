@@ -11,16 +11,21 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file located at the project root (BASE_DIR)
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-x!#i+h$z$^l493$v++xk2r$4lkq(98kp!6-)=t^c^4uv9a7wyg'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-fallback-key-if-not-set')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -127,3 +132,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_REDIRECT_URL = 'core:dashboard' 
 # Redirect to login page if user tries to access restricted page
 LOGIN_URL = 'core:login' 
+
+# Read the API key from the environment variable loaded from .env
+GEOSCAPE_API_KEY = os.environ.get('GEOSCAPE_API_KEY')
+
+# Add a check during development (optional but recommended)
+# if DEBUG and not GEOSCAPE_API_KEY:
+#     print("\n*** WARNING: GEOSCAPE_API_KEY environment variable not set! ***\n")

@@ -44,4 +44,7 @@ urlpatterns = [
     
     # User profile
     path('profile/', views.profile_view, name='profile'),
+    
+    # API Endpoints
+    path('api/address-suggestions/', views.address_suggestion_view, name='api_address_suggestions'),
 ]

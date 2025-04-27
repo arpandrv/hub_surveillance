@@ -1,10 +1,12 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Count, Q
+from django.conf import settings
+import requests
 
 from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm, CalculatorForm
 from .models import Farm, PlantType, PlantPart, Pest, SurveillanceRecord, Grower, Region, SurveillanceCalculation
@@ -462,3 +464,58 @@ def dashboard_view(request):
     }
     
     return render(request, 'core/dashboard.html', context)
+
+@login_required
+def address_suggestion_view(request):
+    query = request.GET.get('query', '')
+    region_id = request.GET.get('region_id', None) # Expect region_id from frontend
+    suggestions = []
+    error_message = None
+    state_territory_used = None
+
+    if not region_id:
+        error_message = "Region must be selected first."
+    elif query and len(query) >= 3:
+        api_key = getattr(settings, 'GEOSCAPE_API_KEY', None)
+        if not api_key:
+            error_message = "API key not configured."
+        else:
+            try:
+                # Look up the region to get the state abbreviation
+                selected_region = Region.objects.get(id=region_id)
+                state_territory_used = selected_region.state_abbreviation
+                if not state_territory_used:
+                     error_message = f"State/Territory not configured for region: {selected_region.name}."
+                else:
+                    geoscape_url = "https://api.psma.com.au/v1/predictive/address"
+                    headers = {
+                        "Accept": "application/json",
+                        "Authorization": api_key
+                    }
+                    params = {
+                        "query": query,
+                        "stateTerritory": state_territory_used # Use state from selected region
+                    }
+                    
+                    response = requests.get(geoscape_url, headers=headers, params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    suggestions = data.get('suggest', [])
+
+            except Region.DoesNotExist:
+                error_message = "Invalid region selected."
+            except requests.exceptions.RequestException as e:
+                print(f"Error calling Geoscape API: {e}") 
+                error_message = "Could not retrieve address suggestions."
+            except Exception as e:
+                print(f"Unexpected error processing Geoscape response: {e}")
+                error_message = "An error occurred while processing suggestions."
+
+    # Prepare JSON response
+    response_data = {'suggestions': suggestions}
+    if error_message:
+        response_data['error'] = error_message
+    if state_territory_used:
+        response_data['state_territory_used'] = state_territory_used # Optionally return state used
+        
+    return JsonResponse(response_data)
