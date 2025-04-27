@@ -49,25 +49,55 @@
                         {% if form.region.errors %}<div class="invalid-feedback">{{ form.region.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Address Toggle Checkbox #}
-                    <div class="mb-3 form-check">
-                        {# Use the model field value for initial state #}
-                        <input type="checkbox" name="has_exact_address" id="id_has_exact_address" class="form-check-input" {% if form.instance.has_exact_address %}checked{% endif %}>
+                    {# Address Toggle Checkbox - HIDDEN for now #}
+                    <div class="mb-3 form-check" style="display: none;">
+                        <input type="checkbox" name="has_exact_address" id="id_has_exact_address" class="form-check-input" checked>
                         <label for="id_has_exact_address" class="form-check-label fw-bold">Do you have an exact street address for this farm?</label>
                     </div>
 
-                    {# Address Search Input and Suggestions - Shown/Hidden by JS #}
-                    <div class="mb-3" id="exact-address-section" style="display: none;"> {# Initially hidden #}
-                        <label for="address_search_input" class="form-label fw-bold">Enter Street Address:</label>
-                        <input type="text" id="address_search_input" class="form-control" placeholder="Start typing address..." autocomplete="off" value="{{ form.instance.formatted_address|default:'' }}">
-                         <div id="suggestions_list" class="list-group mt-1 position-absolute" style="z-index: 1000;">
-                            {# Suggestions will be loaded here by JS #}
+                    {# NEW SIMPLIFIED ADDRESS SECTION #}
+                    <div class="mb-3" style="border: 2px solid green; padding: 15px;">
+                        <h5 class="text-success">Street Address Lookup</h5>
+                        
+                        <div class="row">
+                            <div class="col-md-8">
+                                <label for="new_address_input" class="form-label fw-bold">Enter Street Address:</label>
+                                <input type="text" id="new_address_input" class="form-control" 
+                                    placeholder="Start typing address (e.g., Darwin Airport)" 
+                                    autocomplete="off" 
+                                    value="{{ form.instance.formatted_address|default:'' }}">
+                                
+                                <div id="new_suggestions_list" class="list-group mt-1" style="max-height: 200px; overflow-y: auto;">
+                                    {# Suggestions will appear here #}
+                                </div>
+                                
+                                <div class="form-text">Type at least 3 characters to search. Make sure Northern Territory is selected above.</div>
+                                
+                                {# Hidden fields to store the selected address data #}
+                                <input type="hidden" id="new_geoscape_id" name="geoscape_address_id">
+                                <input type="hidden" id="new_formatted_address" name="formatted_address">
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <div class="d-grid gap-2">
+                                    <button type="button" id="address_lookup_btn" class="btn btn-primary mt-4">
+                                        <i class="bi bi-search"></i> Search Address
+                                    </button>
+                                    
+                                    <a href="{% url 'core:api_address_suggestions' %}?debug=1" target="_blank" class="btn btn-outline-secondary">
+                                        <i class="bi bi-bug"></i> API Debug
+                                    </a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-text">Select a suggested address to automatically parse details.</div>
+                        
+                        <div id="selected_address_display" class="alert alert-success mt-3" style="display: none;">
+                            <strong>Selected Address:</strong> <span id="selected_address_text"></span>
+                        </div>
                     </div>
 
-                     {# General Location Section - Shown/Hidden by JS #}
-                    <div id="general-location-section" style="display: block;"> {# Initially shown #}
+                     {# General Location Section - Always hidden #}
+                    <div id="general-location-section" style="display: none;">{# Hide it since we're focusing on address #}
                         <div class="alert alert-secondary small mb-3" role="alert">
                             No problem! You can map your farm's boundary precisely using GPS later via the 'Map Boundary' option on the farm details page. For now, you can leave the address field blank or add a general location description below if you wish.
                         </div>
@@ -139,8 +169,116 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script type="text/javascript">
+// Add browser console check to detect if console is working
+console.log('%c CONSOLE TEST - If you see this, browser console is working', 'color: green; font-size: 16px; font-weight: bold;');
+
+// NEW simplified version of the address lookup
 document.addEventListener('DOMContentLoaded', function() {
+    // Get all the new elements 
+    const newAddressInput = document.getElementById('new_address_input');
+    const newSuggestionsList = document.getElementById('new_suggestions_list');
+    const addressLookupBtn = document.getElementById('address_lookup_btn');
+    const regionSelect = document.getElementById('{{ form.region.id_for_label }}');
+    const newGeoscapeIdInput = document.getElementById('new_geoscape_id');
+    const newFormattedAddressInput = document.getElementById('new_formatted_address');
+    const selectedAddressDisplay = document.getElementById('selected_address_display');
+    const selectedAddressText = document.getElementById('selected_address_text');
+    
+    // Function to search for addresses
+    function searchAddresses() {
+        const query = newAddressInput.value;
+        const regionId = regionSelect.value;
+        
+        // Clear previous suggestions
+        newSuggestionsList.innerHTML = '';
+        
+        if (query.length < 3) {
+            newSuggestionsList.innerHTML = '<div class="list-group-item text-muted">Please type at least 3 characters</div>';
+            return;
+        }
+        
+        if (!regionId) {
+            newSuggestionsList.innerHTML = '<div class="list-group-item text-danger">Please select a region first</div>';
+            return;
+        }
+        
+        // Add loading indicator
+        newSuggestionsList.innerHTML = '<div class="list-group-item">Searching...</div>';
+        
+        // Make the API call
+        const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
+        
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                // Clear loading indicator
+                newSuggestionsList.innerHTML = '';
+                
+                if (data.error) {
+                    newSuggestionsList.innerHTML = `<div class="list-group-item text-danger">Error: ${data.error}</div>`;
+                } else if (data.suggestions && data.suggestions.length > 0) {
+                    // Add each suggestion as a clickable item
+                    data.suggestions.forEach(item => {
+                        const option = document.createElement('a');
+                        option.href = '#';
+                        option.className = 'list-group-item list-group-item-action';
+                        option.textContent = item.address;
+                        option.dataset.id = item.id;
+                        option.dataset.address = item.address;
+                        
+                        // Add click handler to select an address
+                        option.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            
+                            // Store the ID and address in hidden fields
+                            newGeoscapeIdInput.value = this.dataset.id;
+                            newFormattedAddressInput.value = this.dataset.address;
+                            
+                            // Update the display
+                            selectedAddressText.textContent = this.dataset.address;
+                            selectedAddressDisplay.style.display = 'block';
+                            
+                            // Clear suggestions
+                            newSuggestionsList.innerHTML = '';
+                            
+                            // Show a confirmation
+                            newAddressInput.value = this.dataset.address;
+                        });
+                        
+                        newSuggestionsList.appendChild(option);
+                    });
+                } else {
+                    newSuggestionsList.innerHTML = '<div class="list-group-item text-muted">No matches found</div>';
+                }
+            })
+            .catch(error => {
+                newSuggestionsList.innerHTML = `<div class="list-group-item text-danger">Error: ${error.message}</div>`;
+            });
+    }
+    
+    // Add event listener to search button
+    if (addressLookupBtn) {
+        addressLookupBtn.addEventListener('click', searchAddresses);
+    }
+    
+    // Add event listener for input changes (with debounce)
+    if (newAddressInput) {
+        let debounceTimer;
+        
+        newAddressInput.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(searchAddresses, 300); // Wait 300ms after typing stops
+        });
+    }
+    
+    // Original code - just keeping for reference - THIS IS NOW IGNORED
+// document.addEventListener('DOMContentLoaded', function() {
+    // This is all commented out and replaced with the new code above
+    /*
+    console.log('DOMContentLoaded fired - OLD CODE - IGNORED');
+    */
+
     const addressCheckbox = document.getElementById('id_has_exact_address');
     const exactAddressSection = document.getElementById('exact-address-section');
     const generalLocationSection = document.getElementById('general-location-section');
@@ -152,18 +290,25 @@ document.addEventListener('DOMContentLoaded', function() {
     let debounceTimer; // For debouncing API calls
 
     function toggleAddressFields() {
+        console.log('Toggle function called. Checkbox checked?', addressCheckbox.checked);
+        
+        // Force show/hide by setting important flag
         if (addressCheckbox.checked) {
-            exactAddressSection.style.display = 'block';
-            generalLocationSection.style.display = 'none';
+            exactAddressSection.style.cssText = "display: block !important";
+            generalLocationSection.style.cssText = "display: none !important";
         } else {
-            exactAddressSection.style.display = 'none';
-            generalLocationSection.style.display = 'block';
+            exactAddressSection.style.cssText = "display: none !important";
+            generalLocationSection.style.cssText = "display: block !important";
             // Clear search and hidden fields if checkbox is unchecked
             addressSearchInput.value = ''; 
             geoscapeIdInput.value = '';
             formattedAddressInput.value = '';
             suggestionsList.innerHTML = ''; // Clear suggestions
         }
+        
+        // Debug after change
+        console.log('After toggle - addressSection display:', window.getComputedStyle(exactAddressSection).display);
+        console.log('After toggle - generalSection display:', window.getComputedStyle(generalLocationSection).display);
     }
 
     async function fetchSuggestions() {
@@ -173,26 +318,36 @@ document.addEventListener('DOMContentLoaded', function() {
         geoscapeIdInput.value = ''; // Clear hidden ID unless a suggestion is selected
         formattedAddressInput.value = '';
 
+        console.log('fetchSuggestions called with query:', query, 'region:', regionId);
+
         if (query.length < 3 || !regionId) {
+            console.log('Query too short or no region selected');
             suggestionsList.innerHTML = '<li class="list-group-item text-muted">Please select a region and type at least 3 characters.</li>';
             return; // Don't search if query too short or no region
         }
 
         const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
+        console.log('Calling API URL:', url);
 
         try {
             suggestionsList.innerHTML = '<li class="list-group-item text-muted">Searching...</li>'; // Indicate loading
+            console.log('Making fetch request...');
             const response = await fetch(url);
+            console.log('Fetch response received:', response.status);
+            
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
+            
             const data = await response.json();
+            console.log('API response data:', data);
             suggestionsList.innerHTML = ''; // Clear loading/previous message
 
             if (data.error) {
                 console.error('API Error:', data.error);
                 suggestionsList.innerHTML = `<li class="list-group-item text-danger">${data.error}</li>`;
             } else if (data.suggestions && data.suggestions.length > 0) {
+                console.log('Processing suggestions:', data.suggestions.length, 'items');
                 data.suggestions.forEach(item => {
                     const li = document.createElement('a'); // Use anchor for better semantics
                     li.href = '#'; // Prevent page jump
@@ -210,6 +365,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     suggestionsList.appendChild(li);
                 });
             } else {
+                console.log('No suggestions found');
                 suggestionsList.innerHTML = '<li class="list-group-item text-muted">No suggestions found.</li>';
             }
         } catch (error) {
@@ -225,7 +381,44 @@ document.addEventListener('DOMContentLoaded', function() {
             toggleAddressFields();
             console.log('Address checkbox state:', addressCheckbox.checked);
             console.log('Address section visibility:', exactAddressSection.style.display);
+            
+            // Add test button to manually trigger API call
+            const testBtn = document.createElement('button');
+            testBtn.innerText = 'Test API';
+            testBtn.className = 'btn btn-sm btn-info mt-2';
+            testBtn.onclick = function(e) {
+                e.preventDefault();
+                console.log('Test button clicked');
+                // Hard-code test values
+                const testQuery = 'darwin';
+                const testRegion = '1'; // Northern Territory
+                
+                const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(testQuery)}&region_id=${encodeURIComponent(testRegion)}`;
+                console.log('Testing API with URL:', url);
+                
+                // Show loading state
+                suggestionsList.innerHTML = '<li class="list-group-item text-muted">Testing API...</li>';
+                
+                // Make the test call
+                fetch(url)
+                    .then(response => {
+                        console.log('Test API response status:', response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Test API response data:', data);
+                        suggestionsList.innerHTML = '<li class="list-group-item text-success">Check console for API response</li>';
+                    })
+                    .catch(error => {
+                        console.error('Test API error:', error);
+                        suggestionsList.innerHTML = '<li class="list-group-item text-danger">API Test Error - See console</li>';
+                    });
+            };
+            
+            // Add it to the page
+            exactAddressSection.appendChild(testBtn);
         }, 100);
+        
         addressCheckbox.addEventListener('change', function() {
             toggleAddressFields();
             console.log('Address checkbox changed to:', addressCheckbox.checked);
@@ -235,22 +428,39 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Event listener for address input with debouncing
     if (addressSearchInput && regionSelect) {
+        console.log('Setting up event listeners for addressSearchInput');
+        
         addressSearchInput.addEventListener('input', function() {
+            console.log('Address input changed:', addressSearchInput.value);
             clearTimeout(debounceTimer);
             // Don't fetch if a geoscape ID is already selected (means user picked one)
             if (!geoscapeIdInput.value) { 
+                 console.log('Starting debounce timer...');
                  debounceTimer = setTimeout(fetchSuggestions, 300); // Wait 300ms after user stops typing
             } else {
                  // If user starts typing again after selecting, clear the selected ID
+                 console.log('Clearing previous selection');
                  geoscapeIdInput.value = '';
                  formattedAddressInput.value = '';
                  debounceTimer = setTimeout(fetchSuggestions, 300);
             }
         });
         
+        // Force addressSearchInput to focus when section is shown
+        addressCheckbox.addEventListener('change', function() {
+            if (addressCheckbox.checked) {
+                setTimeout(() => {
+                    console.log('Setting focus to address input');
+                    addressSearchInput.focus();
+                }, 200);
+            }
+        });
+        
         // Also fetch suggestions if region changes while address field has text
         regionSelect.addEventListener('change', function(){
+             console.log('Region changed to:', regionSelect.value);
              if (addressSearchInput.value.length >= 3 && !geoscapeIdInput.value) {
+                 console.log('Region changed with valid query - fetching suggestions');
                  fetchSuggestions();
              }
         });
@@ -264,6 +474,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
     }
-});
+// This closing bracket is from the old function - don't need it anymore
+// });
 </script>
 {% endblock %} 

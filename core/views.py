@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import Http404, JsonResponse
+from django.http import Http404, JsonResponse, HttpResponse
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -467,16 +467,92 @@ def dashboard_view(request):
 
 @login_required
 def address_suggestion_view(request):
+    # Check if debug mode is requested
+    if 'debug' in request.GET:
+        debug_html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Address API Debug</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                pre { background: #f5f5f5; padding: 15px; border-radius: 5px; }
+                .success { color: green; }
+                .error { color: red; }
+            </style>
+        </head>
+        <body>
+            <h1>Address API Debug Page</h1>
+            
+            <h2>Test API directly:</h2>
+            <div>
+                <input type="text" id="query" value="darwin" style="padding: 5px; width: 200px;">
+                <select id="region_id" style="padding: 5px;">
+                    <option value="1">Northern Territory</option>
+                    <option value="2">Queensland</option>
+                    <option value="3">Western Australia</option>
+                </select>
+                <button onclick="testApi()" style="padding: 5px;">Test API</button>
+            </div>
+            
+            <div id="result" style="margin-top: 20px;"></div>
+            
+            <script>
+                function testApi() {
+                    const resultDiv = document.getElementById('result');
+                    const query = document.getElementById('query').value;
+                    const regionId = document.getElementById('region_id').value;
+                    
+                    resultDiv.innerHTML = '<p>Testing API...</p>';
+                    
+                    const url = `?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
+                    
+                    fetch(url)
+                        .then(response => response.json())
+                        .then(data => {
+                            let html = '<h3>API Response:</h3>';
+                            html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                            
+                            if (data.error) {
+                                html += `<p class="error">Error: ${data.error}</p>`;
+                            } else if (data.suggestions && data.suggestions.length > 0) {
+                                html += `<p class="success">Found ${data.suggestions.length} suggestions:</p>`;
+                                html += '<ul>';
+                                data.suggestions.forEach(item => {
+                                    html += `<li>${item.address}</li>`;
+                                });
+                                html += '</ul>';
+                            } else {
+                                html += '<p>No suggestions found.</p>';
+                            }
+                            
+                            resultDiv.innerHTML = html;
+                        })
+                        .catch(error => {
+                            resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+                        });
+                }
+            </script>
+        </body>
+        </html>
+        """
+        return HttpResponse(debug_html)
+    
+    # Regular API logic
     query = request.GET.get('query', '')
     region_id = request.GET.get('region_id', None) # Expect region_id from frontend
     suggestions = []
     error_message = None
     state_territory_used = None
 
+    print(f"Address suggestion API called with query: {query}, region_id: {region_id}")
+    
     if not region_id:
         error_message = "Region must be selected first."
     elif query and len(query) >= 3:
         api_key = getattr(settings, 'GEOSCAPE_API_KEY', None)
+        print(f"API key found: {'Yes' if api_key else 'No'}")
+        
         if not api_key:
             error_message = "API key not configured."
         else:
@@ -484,23 +560,40 @@ def address_suggestion_view(request):
                 # Look up the region to get the state abbreviation
                 selected_region = Region.objects.get(id=region_id)
                 state_territory_used = selected_region.state_abbreviation
+                print(f"Region {selected_region.name} has state_abbreviation: {state_territory_used}")
+                
                 if not state_territory_used:
                      error_message = f"State/Territory not configured for region: {selected_region.name}."
                 else:
                     geoscape_url = "https://api.psma.com.au/v1/predictive/address"
                     headers = {
                         "Accept": "application/json",
-                        "Authorization": api_key
+                        "Authorization": api_key  # Using API key directly without Bearer prefix
                     }
                     params = {
                         "query": query,
                         "stateTerritory": state_territory_used # Use state from selected region
                     }
+                    # Debug info
+                    print(f"Using API Key starting with: {api_key[:5]}... (hidden)")
+                    print(f"Request URL: {geoscape_url}")
+                    print(f"Headers: {headers}")
+                    print(f"Params: {params}")
                     
+                    # Try the request
+                    print("Making API request...")
                     response = requests.get(geoscape_url, headers=headers, params=params, timeout=10)
+                    print(f"API Response status: {response.status_code}")
+                    
+                    # Add more error details if needed
+                    if response.status_code != 200:
+                        print(f"Error response body: {response.text}")
+                        
                     response.raise_for_status()
                     data = response.json()
+                    print(f"API Response structure: {list(data.keys())}")
                     suggestions = data.get('suggest', [])
+                    print(f"Found {len(suggestions)} suggestions")
 
             except Region.DoesNotExist:
                 error_message = "Invalid region selected."
