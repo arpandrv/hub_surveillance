@@ -42,8 +42,9 @@
 
 {# Green Recommended Surveillance Section #}
 <div class="card shadow-sm mb-4">
-    <div class="card-header text-white" style="background-color: #198754;"> {# Green header #}
+    <div class="card-header text-white" style="background-color: #198754;">
         <h5 class="mb-0">Current Recommended Surveillance</h5>
+        <small>(Calculated using {{ default_confidence_used }}% confidence for {{ default_season_used }} season prevalence)</small> 
     </div>
     <div class="card-body">
         {% if calculation_results and not calculation_results.error %}

@@ -51,6 +51,9 @@ def calculate_surveillance_effort(farm, confidence_level_percent, season):
             'error': f'Invalid season selected: {season}',
         }
     
+    # Calculate p_percent for display
+    p_percent = p * 100 
+
     # 3. Set margin of error
     d = 0.05
     
@@ -95,6 +98,7 @@ def calculate_surveillance_effort(farm, confidence_level_percent, season):
         **calculation_inputs, # Include inputs used
         'z': z,
         'p': p,
+        'p_percent': p_percent,
         'd': d,
         'required_plants_to_survey': n_final,
         'survey_frequency': survey_frequency,

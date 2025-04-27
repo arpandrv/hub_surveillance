@@ -3,8 +3,9 @@ from django.http import Http404
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+import datetime # Import datetime
 from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm, CalculatorForm
-from .models import Farm, PlantType, SurveillanceRecord, Grower
+from .models import Farm, PlantType, SurveillanceRecord, Grower, Region # Import Region
 from .calculations import calculate_surveillance_effort # Import from calculations
 
 # Create your views here.
@@ -52,15 +53,31 @@ def create_farm_view(request):
 @login_required
 def farm_detail_view(request, farm_id):
     farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
-    calculation_results = calculate_surveillance_effort(farm)
     
-    # Fetch related surveillance records, order by most recent first
+    # --- Decide on default values for detail page display ---
+    default_confidence = 95
+    # Simple season guess based on month (adjust ranges as needed for NT)
+    current_month = datetime.date.today().month
+    if 5 <= current_month <= 10: # Approx May-Oct -> Dry Season
+         # Future enhancement: Could check if farm has specific flowering dates set
+         default_season = 'Dry'
+    else: # Approx Nov-Apr -> Wet Season
+         default_season = 'Wet'
+    
+    # Calculate surveillance effort using defaults
+    calculation_results = calculate_surveillance_effort(
+        farm=farm,
+        confidence_level_percent=default_confidence,
+        season=default_season
+    )
+    
     surveillance_records = farm.surveillance_records.order_by('-date_performed')
-    
     context = {
         'farm': farm,
-        'calculation_results': calculation_results,
-        'surveillance_records': surveillance_records # Add records to context
+        'calculation_results': calculation_results, 
+        'surveillance_records': surveillance_records,
+        'default_season_used': default_season, # Pass the determined season
+        'default_confidence_used': default_confidence # Pass the confidence used
     }
     return render(request, 'core/farm_detail.html', context)
 
