@@ -40,10 +40,10 @@ class SignUpForm(forms.ModelForm):
         return user 
 
 class FarmForm(forms.ModelForm):
-    # Add Region field with limited queryset as per image
-    # Note: This assumes 'Northern Territory' and potential others exist in the DB
+    # Add Region field
+    # Temporarily allow all regions for testing
     region = forms.ModelChoiceField(
-        queryset=Region.objects.filter(name__in=['Northern Territory']), # Limit choices
+        queryset=Region.objects.all(),  # Show all regions temporarily
         empty_label=None, # No empty choice needed if required
         required=True
     )

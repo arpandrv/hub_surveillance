@@ -2,7 +2,7 @@
 
 {% block title %}{% if farm %}Edit Farm: {{ farm.name }}{% else %}Create Farm{% endif %}{% endblock %}
 
-{% block heading %}{# No main heading needed here #}{% endblock %}
+{% block heading %}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -14,33 +14,25 @@
             <div class="card-body">
                 <form method="post" novalidate id="farm-form">
                     {% csrf_token %}
-                    
-                    {# Hidden input to store selected Geoscape ID #}
-                    <input type="hidden" name="geoscape_address_id" id="id_geoscape_address_id" value="{{ form.instance.geoscape_address_id|default:'' }}">
-                    {# Hidden input to store the full selected address text #}
-                    <input type="hidden" name="formatted_address" id="id_formatted_address" value="{{ form.instance.formatted_address|default:'' }}">
 
-                    {# Display non-field errors #}
-                    {% if form.non_field_errors %}
-                    <div class="alert alert-danger small">
-                        {% for error in form.non_field_errors %}
-                        <p class="mb-0">{{ error }}</p>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
+                    {# Hidden fields for selected Geoscape Address ID and full address #}
+                    <input type="hidden" name="geoscape_address_id" id="id_geoscape_address_id" value="{{ form.instance.geoscape_address_id|default:'' }}">
+                    <input type="hidden" name="formatted_address" id="id_formatted_address" value="{{ form.instance.formatted_address|default:'' }}">
 
                     {# Farm Name #}
                     <div class="mb-3">
                         <label for="{{ form.name.id_for_label }}" class="form-label fw-bold">{{ form.name.label }}:</label>
-                        <input type="text" name="{{ form.name.name }}" id="{{ form.name.id_for_label }}" class="form-control {% if form.name.errors %}is-invalid{% endif %}" value="{{ form.name.value|default:'' }}" required>
+                        <input type="text" name="{{ form.name.name }}" id="{{ form.name.id_for_label }}" 
+                               class="form-control {% if form.name.errors %}is-invalid{% endif %}" 
+                               value="{{ form.name.value|default:'' }}" required>
                         {% if form.name.errors %}<div class="invalid-feedback">{{ form.name.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Region - Needed for API call #}
+                    {# Region #}
                     <div class="mb-3">
                         <label for="{{ form.region.id_for_label }}" class="form-label fw-bold">{{ form.region.label }}:</label>
-                        <select name="{{ form.region.name }}" id="{{ form.region.id_for_label }}" class="form-select {% if form.region.errors %}is-invalid{% endif %}" required>
-                            {# Value comes from the form queryset #}
+                        <select name="{{ form.region.name }}" id="{{ form.region.id_for_label }}" 
+                                class="form-select {% if form.region.errors %}is-invalid{% endif %}" required>
                             {% for value, text in form.region.field.choices %}
                             <option value="{{ value }}" {% if form.region.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
                             {% endfor %}
@@ -49,115 +41,94 @@
                         {% if form.region.errors %}<div class="invalid-feedback">{{ form.region.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Address Toggle Checkbox - HIDDEN for now #}
-                    <div class="mb-3 form-check" style="display: none;">
-                        <input type="checkbox" name="has_exact_address" id="id_has_exact_address" class="form-check-input" checked>
+                    {# Address Toggle Checkbox #}
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" name="has_exact_address" id="id_has_exact_address" class="form-check-input" {% if form.instance.has_exact_address %}checked{% endif %}>
                         <label for="id_has_exact_address" class="form-check-label fw-bold">Do you have an exact street address for this farm?</label>
                     </div>
 
-                    {# NEW SIMPLIFIED ADDRESS SECTION #}
-                    <div class="mb-3" style="border: 2px solid green; padding: 15px;">
-                        <h5 class="text-success">Street Address Lookup</h5>
-                        
-                        <div class="row">
-                            <div class="col-md-8">
-                                <label for="new_address_input" class="form-label fw-bold">Enter Street Address:</label>
-                                <input type="text" id="new_address_input" class="form-control" 
-                                    placeholder="Start typing address (e.g., Darwin Airport)" 
-                                    autocomplete="off" 
-                                    value="{{ form.instance.formatted_address|default:'' }}">
-                                
-                                <div id="new_suggestions_list" class="list-group mt-1" style="max-height: 200px; overflow-y: auto;">
-                                    {# Suggestions will appear here #}
-                                </div>
-                                
-                                <div class="form-text">Type at least 3 characters to search. Make sure Northern Territory is selected above.</div>
-                                
-                                {# Hidden fields to store the selected address data #}
-                                <input type="hidden" id="new_geoscape_id" name="geoscape_address_id">
-                                <input type="hidden" id="new_formatted_address" name="formatted_address">
-                            </div>
-                            
-                            <div class="col-md-4">
-                                <div class="d-grid gap-2">
-                                    <button type="button" id="address_lookup_btn" class="btn btn-primary mt-4">
-                                        <i class="bi bi-search"></i> Search Address
-                                    </button>
-                                    
-                                    <a href="{% url 'core:api_address_suggestions' %}?debug=1" target="_blank" class="btn btn-outline-secondary">
-                                        <i class="bi bi-bug"></i> API Debug
-                                    </a>
-                                </div>
-                            </div>
+                    {# Exact Address Section #}
+                    <div class="mb-3" id="exact-address-section">
+                        <h5 class="text-primary">Street Address</h5>
+                        <label for="address_search_input" class="form-label fw-bold">Enter Street Address:</label>
+                        <input type="text" id="address_search_input" class="form-control" 
+                               placeholder="Start typing address (e.g., Darwin Airport)" autocomplete="off"
+                               value="{{ form.instance.formatted_address|default:'' }}">
+
+                        <div id="suggestions_list" class="list-group mt-1" style="max-height: 200px; overflow-y: auto; position: absolute; z-index: 1000; width: 94%;">
                         </div>
+
+                        <div class="form-text">Type at least 3 characters to search. Make sure region is selected above.</div>
                         
-                        <div id="selected_address_display" class="alert alert-success mt-3" style="display: none;">
-                            <strong>Selected Address:</strong> <span id="selected_address_text"></span>
-                        </div>
+                        <!-- Direct Test Button -->
+                        <button type="button" id="api_test_button" class="btn btn-sm btn-info mt-2">Test Address API</button>
+                        <a href="{% url 'core:api_address_suggestions' %}?debug=1" target="_blank" class="btn btn-sm btn-outline-secondary mt-2 ms-2">API Debug Page</a>
                     </div>
 
-                     {# General Location Section - Always hidden #}
-                    <div id="general-location-section" style="display: none;">{# Hide it since we're focusing on address #}
-                        <div class="alert alert-secondary small mb-3" role="alert">
-                            No problem! You can map your farm's boundary precisely using GPS later via the 'Map Boundary' option on the farm details page. For now, you can leave the address field blank or add a general location description below if you wish.
+                    {# General Location Section #}
+                    <div id="general-location-section" class="mb-3">
+                        <div class="alert alert-secondary small" role="alert">
+                            No problem! You can map your farm's boundary later. For now, add a general description.
                         </div>
-                        <div class="mb-3">
-                            <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
-                            <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" class="form-control {% if form.location_description.errors %}is-invalid{% endif %}" rows="2" placeholder="{{ form.location_description.field.widget.attrs.placeholder }}">{{ form.location_description.value|default:'' }}</textarea>
-                            <div class="form-text">e.g., "Near Katherine River", "Smith Property via XYZ Road"</div>
-                            {% if form.location_description.errors %}<div class="invalid-feedback">{{ form.location_description.errors|striptags }}</div>{% endif %}
-                        </div>
+                        <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
+                        <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" 
+                                  class="form-control {% if form.location_description.errors %}is-invalid{% endif %}" rows="2"
+                                  placeholder="{{ form.location_description.field.widget.attrs.placeholder }}">{{ form.location_description.value|default:'' }}</textarea>
+                        {% if form.location_description.errors %}<div class="invalid-feedback">{{ form.location_description.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Size and Stocking Rate #}
+                    {# Size and Stocking Rate Section #}
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="{{ form.size_hectares.id_for_label }}" class="form-label fw-bold">{{ form.size_hectares.label }}:</label>
-                            <input type="number" name="{{ form.size_hectares.name }}" id="{{ form.size_hectares.id_for_label }}" class="form-control {% if form.size_hectares.errors %}is-invalid{% endif %}" value="{{ form.size_hectares.value|default:'' }}" step="any">
-                             <div class="form-text">Total farm size in hectares</div>
+                            <input type="number" name="{{ form.size_hectares.name }}" id="{{ form.size_hectares.id_for_label }}" 
+                                   class="form-control {% if form.size_hectares.errors %}is-invalid{% endif %}" 
+                                   value="{{ form.size_hectares.value|default:'' }}" step="any">
+                            <div class="form-text">Total farm size in hectares.</div>
                             {% if form.size_hectares.errors %}<div class="invalid-feedback">{{ form.size_hectares.errors|striptags }}</div>{% endif %}
                         </div>
                         <div class="col-md-6">
-                             <label for="{{ form.stocking_rate.id_for_label }}" class="form-label fw-bold">{{ form.stocking_rate.label }}:</label>
-                            <input type="number" name="{{ form.stocking_rate.name }}" id="{{ form.stocking_rate.id_for_label }}" class="form-control {% if form.stocking_rate.errors %}is-invalid{% endif %}" value="{{ form.stocking_rate.value|default:'' }}" step="1">
-                            <div class="form-text">Number of plants per hectare</div>
+                            <label for="{{ form.stocking_rate.id_for_label }}" class="form-label fw-bold">{{ form.stocking_rate.label }}:</label>
+                            <input type="number" name="{{ form.stocking_rate.name }}" id="{{ form.stocking_rate.id_for_label }}" 
+                                   class="form-control {% if form.stocking_rate.errors %}is-invalid{% endif %}" 
+                                   value="{{ form.stocking_rate.value|default:'' }}" step="1">
+                            <div class="form-text">Number of plants per hectare.</div>
                             {% if form.stocking_rate.errors %}<div class="invalid-feedback">{{ form.stocking_rate.errors|striptags }}</div>{% endif %}
                         </div>
                     </div>
 
-                    {# Distribution Pattern #}
-                     <div class="mb-3">
+                    {# Distribution Pattern Section #}
+                    <div class="mb-3">
                         <label for="{{ form.distribution_pattern.id_for_label }}" class="form-label fw-bold">Plant Distribution Pattern:</label>
-                        <select name="{{ form.distribution_pattern.name }}" id="{{ form.distribution_pattern.id_for_label }}" class="form-select {% if form.distribution_pattern.errors %}is-invalid{% endif %}">
+                        <select name="{{ form.distribution_pattern.name }}" id="{{ form.distribution_pattern.id_for_label }}" 
+                                class="form-select {% if form.distribution_pattern.errors %}is-invalid{% endif %}">
                             {% for value, text in form.distribution_pattern.field.choices %}
                             <option value="{{ value }}" {% if form.distribution_pattern.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
                             {% endfor %}
                         </select>
                         {% if form.distribution_pattern.errors %}<div class="invalid-feedback">{{ form.distribution_pattern.errors|striptags }}</div>{% endif %}
                     </div>
-                    
-                    {# Plant Types (Display Only - Set in View) #}
-                     <div class="mb-3">
+
+                    {# Plant Types Display Section #}
+                    <div class="mb-3">
                         <label class="form-label fw-bold">Plant Types:</label>
                         <div class="form-control bg-light">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" value="" id="mangoCheck" checked disabled>
-                                <label class="form-check-label" for="mangoCheck">
-                                    Mango
-                                </label>
+                                <label class="form-check-label" for="mangoCheck">Mango</label>
                             </div>
                         </div>
                         <div class="form-text">Currently only Mango surveillance is supported.</div>
                     </div>
 
-                    {# Buttons #}
+                    {# Form Buttons #}
                     <hr class="my-4">
                     <div class="d-flex justify-content-end">
-                         {% if farm %}
+                        {% if farm %}
                             <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-outline-secondary me-2">Cancel</a>
-                         {% else %}
-                            <a href="{% url 'core:myfarms' %}" class="btn btn-outline-secondary me-2">Cancel</a> {# Point cancel to myfarms #}
-                         {% endif %}
+                        {% else %}
+                            <a href="{% url 'core:myfarms' %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                        {% endif %}
                         <button type="submit" class="btn btn-primary">{% if farm %}Save Farm{% else %}Save Farm{% endif %}</button> 
                     </div>
                 </form>
@@ -165,316 +136,218 @@
         </div>
     </div>
 </div>
-
 {% endblock %}
 
 {% block extra_js %}
 <script type="text/javascript">
-// Add browser console check to detect if console is working
-console.log('%c CONSOLE TEST - If you see this, browser console is working', 'color: green; font-size: 16px; font-weight: bold;');
-
-// NEW simplified version of the address lookup
 document.addEventListener('DOMContentLoaded', function() {
-    // Get all the new elements 
-    const newAddressInput = document.getElementById('new_address_input');
-    const newSuggestionsList = document.getElementById('new_suggestions_list');
-    const addressLookupBtn = document.getElementById('address_lookup_btn');
-    const regionSelect = document.getElementById('{{ form.region.id_for_label }}');
-    const newGeoscapeIdInput = document.getElementById('new_geoscape_id');
-    const newFormattedAddressInput = document.getElementById('new_formatted_address');
-    const selectedAddressDisplay = document.getElementById('selected_address_display');
-    const selectedAddressText = document.getElementById('selected_address_text');
+    console.log('DOM content loaded - initializing address functionality');
     
-    // Function to search for addresses
-    function searchAddresses() {
-        const query = newAddressInput.value;
+    // Core elements
+    const addressCheckbox = document.getElementById('id_has_exact_address');
+    const addressSection = document.getElementById('exact-address-section');
+    const generalSection = document.getElementById('general-location-section');
+    const addressInput = document.getElementById('address_search_input');
+    const suggestionsList = document.getElementById('suggestions_list');
+    const regionSelect = document.getElementById('{{ form.region.id_for_label }}');
+    const idInput = document.getElementById('id_geoscape_address_id');
+    const formattedInput = document.getElementById('id_formatted_address');
+    const testButton = document.getElementById('api_test_button');
+    
+    // Function to toggle address sections
+    function toggleAddressSections() {
+        console.log('Toggle called - checkbox checked:', addressCheckbox ? addressCheckbox.checked : 'checkbox not found');
+        
+        if (addressCheckbox && addressCheckbox.checked) {
+            console.log('Setting address section visible');
+            if (addressSection) addressSection.style.cssText = "display: block !important;";
+            if (generalSection) generalSection.style.cssText = "display: none !important;";
+        } else {
+            console.log('Setting address section hidden');
+            if (addressSection) addressSection.style.cssText = "display: none !important;";
+            if (generalSection) generalSection.style.cssText = "display: block !important;";
+            // Clear address values when hiding section
+            if (addressInput) addressInput.value = '';
+            if (idInput) idInput.value = '';
+            if (formattedInput) formattedInput.value = '';
+            if (suggestionsList) suggestionsList.innerHTML = '';
+        }
+        
+        // Log actual display values
+        if (addressSection) console.log('Address section display:', window.getComputedStyle(addressSection).display);
+        if (generalSection) console.log('General section display:', window.getComputedStyle(generalSection).display);
+    }
+    
+    // Function to search for addresses via API
+    async function searchAddresses() {
+        if (!addressInput || !suggestionsList || !regionSelect) return;
+        
+        const query = addressInput.value.trim();
         const regionId = regionSelect.value;
         
         // Clear previous suggestions
-        newSuggestionsList.innerHTML = '';
+        suggestionsList.innerHTML = '';
         
-        if (query.length < 3) {
-            newSuggestionsList.innerHTML = '<div class="list-group-item text-muted">Please type at least 3 characters</div>';
-            return;
-        }
+        // Don't search if query too short or no region selected
+        if (query.length < 3 || !regionId) return;
         
-        if (!regionId) {
-            newSuggestionsList.innerHTML = '<div class="list-group-item text-danger">Please select a region first</div>';
-            return;
-        }
+        // Show loading indicator
+        suggestionsList.innerHTML = '<a class="list-group-item disabled">Searching...</a>';
         
-        // Add loading indicator
-        newSuggestionsList.innerHTML = '<div class="list-group-item">Searching...</div>';
-        
-        // Make the API call
-        const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
-        
-        fetch(url)
-            .then(response => response.json())
-            .then(data => {
-                // Clear loading indicator
-                newSuggestionsList.innerHTML = '';
-                
-                if (data.error) {
-                    newSuggestionsList.innerHTML = `<div class="list-group-item text-danger">Error: ${data.error}</div>`;
-                } else if (data.suggestions && data.suggestions.length > 0) {
-                    // Add each suggestion as a clickable item
-                    data.suggestions.forEach(item => {
-                        const option = document.createElement('a');
-                        option.href = '#';
-                        option.className = 'list-group-item list-group-item-action';
-                        option.textContent = item.address;
-                        option.dataset.id = item.id;
-                        option.dataset.address = item.address;
-                        
-                        // Add click handler to select an address
-                        option.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            
-                            // Store the ID and address in hidden fields
-                            newGeoscapeIdInput.value = this.dataset.id;
-                            newFormattedAddressInput.value = this.dataset.address;
-                            
-                            // Update the display
-                            selectedAddressText.textContent = this.dataset.address;
-                            selectedAddressDisplay.style.display = 'block';
-                            
-                            // Clear suggestions
-                            newSuggestionsList.innerHTML = '';
-                            
-                            // Show a confirmation
-                            newAddressInput.value = this.dataset.address;
-                        });
-                        
-                        newSuggestionsList.appendChild(option);
-                    });
-                } else {
-                    newSuggestionsList.innerHTML = '<div class="list-group-item text-muted">No matches found</div>';
-                }
-            })
-            .catch(error => {
-                newSuggestionsList.innerHTML = `<div class="list-group-item text-danger">Error: ${error.message}</div>`;
-            });
-    }
-    
-    // Add event listener to search button
-    if (addressLookupBtn) {
-        addressLookupBtn.addEventListener('click', searchAddresses);
-    }
-    
-    // Add event listener for input changes (with debounce)
-    if (newAddressInput) {
-        let debounceTimer;
-        
-        newAddressInput.addEventListener('input', function() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(searchAddresses, 300); // Wait 300ms after typing stops
-        });
-    }
-    
-    // Original code - just keeping for reference - THIS IS NOW IGNORED
-// document.addEventListener('DOMContentLoaded', function() {
-    // This is all commented out and replaced with the new code above
-    /*
-    console.log('DOMContentLoaded fired - OLD CODE - IGNORED');
-    */
-
-    const addressCheckbox = document.getElementById('id_has_exact_address');
-    const exactAddressSection = document.getElementById('exact-address-section');
-    const generalLocationSection = document.getElementById('general-location-section');
-    const addressSearchInput = document.getElementById('address_search_input');
-    const suggestionsList = document.getElementById('suggestions_list');
-    const regionSelect = document.getElementById('{{ form.region.id_for_label }}');
-    const geoscapeIdInput = document.getElementById('id_geoscape_address_id');
-    const formattedAddressInput = document.getElementById('id_formatted_address');
-    let debounceTimer; // For debouncing API calls
-
-    function toggleAddressFields() {
-        console.log('Toggle function called. Checkbox checked?', addressCheckbox.checked);
-        
-        // Force show/hide by setting important flag
-        if (addressCheckbox.checked) {
-            exactAddressSection.style.cssText = "display: block !important";
-            generalLocationSection.style.cssText = "display: none !important";
-        } else {
-            exactAddressSection.style.cssText = "display: none !important";
-            generalLocationSection.style.cssText = "display: block !important";
-            // Clear search and hidden fields if checkbox is unchecked
-            addressSearchInput.value = ''; 
-            geoscapeIdInput.value = '';
-            formattedAddressInput.value = '';
-            suggestionsList.innerHTML = ''; // Clear suggestions
-        }
-        
-        // Debug after change
-        console.log('After toggle - addressSection display:', window.getComputedStyle(exactAddressSection).display);
-        console.log('After toggle - generalSection display:', window.getComputedStyle(generalLocationSection).display);
-    }
-
-    async function fetchSuggestions() {
-        const query = addressSearchInput.value;
-        const regionId = regionSelect.value;
-        suggestionsList.innerHTML = ''; // Clear previous suggestions
-        geoscapeIdInput.value = ''; // Clear hidden ID unless a suggestion is selected
-        formattedAddressInput.value = '';
-
-        console.log('fetchSuggestions called with query:', query, 'region:', regionId);
-
-        if (query.length < 3 || !regionId) {
-            console.log('Query too short or no region selected');
-            suggestionsList.innerHTML = '<li class="list-group-item text-muted">Please select a region and type at least 3 characters.</li>';
-            return; // Don't search if query too short or no region
-        }
-
-        const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
-        console.log('Calling API URL:', url);
-
         try {
-            suggestionsList.innerHTML = '<li class="list-group-item text-muted">Searching...</li>'; // Indicate loading
-            console.log('Making fetch request...');
+            // Make API call
+            const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
             const response = await fetch(url);
-            console.log('Fetch response received:', response.status);
             
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`Error: ${response.status}`);
             }
             
             const data = await response.json();
-            console.log('API response data:', data);
-            suggestionsList.innerHTML = ''; // Clear loading/previous message
-
+            
+            // Clear loading indicator
+            suggestionsList.innerHTML = '';
+            
             if (data.error) {
-                console.error('API Error:', data.error);
-                suggestionsList.innerHTML = `<li class="list-group-item text-danger">${data.error}</li>`;
+                // Show error message
+                suggestionsList.innerHTML = `<a class="list-group-item list-group-item-danger">${data.error}</a>`;
             } else if (data.suggestions && data.suggestions.length > 0) {
-                console.log('Processing suggestions:', data.suggestions.length, 'items');
-                data.suggestions.forEach(item => {
-                    const li = document.createElement('a'); // Use anchor for better semantics
-                    li.href = '#'; // Prevent page jump
-                    li.classList.add('list-group-item', 'list-group-item-action');
-                    li.textContent = item.address;
-                    li.dataset.id = item.id; // Store ID in data attribute
-                    li.dataset.address = item.address;
-                    li.addEventListener('click', function(e) {
-                        e.preventDefault(); // Prevent anchor default action
-                        addressSearchInput.value = this.dataset.address; // Set input to full address
-                        geoscapeIdInput.value = this.dataset.id; // Store the ID
-                        formattedAddressInput.value = this.dataset.address; // Store full address
-                        suggestionsList.innerHTML = ''; // Clear suggestions after selection
+                // Add each suggestion as a clickable item
+                data.suggestions.forEach(suggestion => {
+                    const item = document.createElement('a');
+                    item.href = '#';
+                    item.className = 'list-group-item list-group-item-action';
+                    item.textContent = suggestion.address;
+                    
+                    // Add click handler
+                    item.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        
+                        // Set values
+                        addressInput.value = suggestion.address;
+                        idInput.value = suggestion.id;
+                        formattedInput.value = suggestion.address;
+                        
+                        // Clear suggestions
+                        suggestionsList.innerHTML = '';
                     });
-                    suggestionsList.appendChild(li);
+                    
+                    suggestionsList.appendChild(item);
                 });
             } else {
-                console.log('No suggestions found');
-                suggestionsList.innerHTML = '<li class="list-group-item text-muted">No suggestions found.</li>';
+                // No suggestions found
+                suggestionsList.innerHTML = '<a class="list-group-item disabled">No matches found</a>';
             }
         } catch (error) {
-            console.error('Fetch Error:', error);
-            suggestionsList.innerHTML = '<li class="list-group-item text-danger">Error fetching suggestions. Check console.</li>';
+            console.error('Address API error:', error);
+            suggestionsList.innerHTML = '<a class="list-group-item list-group-item-danger">Error fetching suggestions</a>';
         }
     }
-
-    // Initial state based on checkbox value
+    
+    // Set up test button functionality
+    if (testButton) {
+        console.log('Found test button - adding click handler');
+        testButton.addEventListener('click', function() {
+            const testQuery = 'darwin';
+            const regionId = regionSelect ? regionSelect.value : '1';
+            
+            console.log(`Testing API with query=${testQuery}, region_id=${regionId}`);
+            
+            // Show message
+            if (suggestionsList) {
+                suggestionsList.innerHTML = '<a class="list-group-item list-group-item-info">Testing API...</a>';
+            }
+            
+            // Call API
+            fetch(`{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(testQuery)}&region_id=${encodeURIComponent(regionId)}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log('API response:', data);
+                    if (suggestionsList) {
+                        if (data.error) {
+                            suggestionsList.innerHTML = `<a class="list-group-item list-group-item-danger">${data.error}</a>`;
+                        } else if (data.suggestions && data.suggestions.length > 0) {
+                            suggestionsList.innerHTML = `<a class="list-group-item list-group-item-success">Found ${data.suggestions.length} suggestions</a>`;
+                            
+                            // Add some examples
+                            data.suggestions.slice(0, 3).forEach(suggestion => {
+                                const item = document.createElement('a');
+                                item.href = '#';
+                                item.className = 'list-group-item list-group-item-action';
+                                item.textContent = suggestion.address;
+                                suggestionsList.appendChild(item);
+                            });
+                        } else {
+                            suggestionsList.innerHTML = '<a class="list-group-item list-group-item-warning">No suggestions found</a>';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Test API error:', error);
+                    if (suggestionsList) {
+                        suggestionsList.innerHTML = `<a class="list-group-item list-group-item-danger">Error: ${error.message}</a>`;
+                    }
+                });
+        });
+    } else {
+        console.error('Test button not found!');
+    }
+    
+    // Set initial state based on checkbox
     if (addressCheckbox) {
-        // Ensure DOM is fully loaded before toggling
+        console.log('Initial checkbox state:', addressCheckbox.checked);
+        
+        // Apply initial state
         setTimeout(function() {
-            toggleAddressFields();
-            console.log('Address checkbox state:', addressCheckbox.checked);
-            console.log('Address section visibility:', exactAddressSection.style.display);
-            
-            // Add test button to manually trigger API call
-            const testBtn = document.createElement('button');
-            testBtn.innerText = 'Test API';
-            testBtn.className = 'btn btn-sm btn-info mt-2';
-            testBtn.onclick = function(e) {
-                e.preventDefault();
-                console.log('Test button clicked');
-                // Hard-code test values
-                const testQuery = 'darwin';
-                const testRegion = '1'; // Northern Territory
-                
-                const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(testQuery)}&region_id=${encodeURIComponent(testRegion)}`;
-                console.log('Testing API with URL:', url);
-                
-                // Show loading state
-                suggestionsList.innerHTML = '<li class="list-group-item text-muted">Testing API...</li>';
-                
-                // Make the test call
-                fetch(url)
-                    .then(response => {
-                        console.log('Test API response status:', response.status);
-                        return response.json();
-                    })
-                    .then(data => {
-                        console.log('Test API response data:', data);
-                        suggestionsList.innerHTML = '<li class="list-group-item text-success">Check console for API response</li>';
-                    })
-                    .catch(error => {
-                        console.error('Test API error:', error);
-                        suggestionsList.innerHTML = '<li class="list-group-item text-danger">API Test Error - See console</li>';
-                    });
-            };
-            
-            // Add it to the page
-            exactAddressSection.appendChild(testBtn);
+            toggleAddressSections();
         }, 100);
         
+        // Update when checkbox changes
         addressCheckbox.addEventListener('change', function() {
-            toggleAddressFields();
-            console.log('Address checkbox changed to:', addressCheckbox.checked);
-            console.log('Address section visibility now:', exactAddressSection.style.display);
+            console.log('Checkbox changed to:', this.checked);
+            toggleAddressSections();
+            
+            // Focus address input when shown
+            if (this.checked && addressInput) {
+                setTimeout(function() {
+                    addressInput.focus();
+                }, 100);
+            }
         });
     }
-
-    // Event listener for address input with debouncing
-    if (addressSearchInput && regionSelect) {
-        console.log('Setting up event listeners for addressSearchInput');
-        
-        addressSearchInput.addEventListener('input', function() {
-            console.log('Address input changed:', addressSearchInput.value);
+    
+    // Search as user types (with debounce)
+    if (addressInput) {
+        let debounceTimer;
+        addressInput.addEventListener('input', function() {
             clearTimeout(debounceTimer);
-            // Don't fetch if a geoscape ID is already selected (means user picked one)
-            if (!geoscapeIdInput.value) { 
-                 console.log('Starting debounce timer...');
-                 debounceTimer = setTimeout(fetchSuggestions, 300); // Wait 300ms after user stops typing
-            } else {
-                 // If user starts typing again after selecting, clear the selected ID
-                 console.log('Clearing previous selection');
-                 geoscapeIdInput.value = '';
-                 formattedAddressInput.value = '';
-                 debounceTimer = setTimeout(fetchSuggestions, 300);
-            }
+            debounceTimer = setTimeout(searchAddresses, 500);
         });
         
-        // Force addressSearchInput to focus when section is shown
-        addressCheckbox.addEventListener('change', function() {
-            if (addressCheckbox.checked) {
-                setTimeout(() => {
-                    console.log('Setting focus to address input');
-                    addressSearchInput.focus();
-                }, 200);
+        // Also search when input gets focus if it has content
+        addressInput.addEventListener('focus', function() {
+            if (this.value.trim().length >= 3) {
+                searchAddresses();
             }
         });
-        
-        // Also fetch suggestions if region changes while address field has text
-        regionSelect.addEventListener('change', function(){
-             console.log('Region changed to:', regionSelect.value);
-             if (addressSearchInput.value.length >= 3 && !geoscapeIdInput.value) {
-                 console.log('Region changed with valid query - fetching suggestions');
-                 fetchSuggestions();
-             }
-        });
-
-        // Clear suggestions when input loses focus (optional)
-        document.addEventListener('click', function(event) {
-            // Check if the click is outside the search input and suggestion list
-            if (!addressSearchInput.contains(event.target) && !suggestionsList.contains(event.target)) {
-                suggestionsList.innerHTML = ''; // Clear suggestions
-            }
-        });
-
     }
-// This closing bracket is from the old function - don't need it anymore
-// });
+    
+    // Re-search when region changes if address has content
+    if (regionSelect) {
+        regionSelect.addEventListener('change', function() {
+            if (addressInput && addressInput.value.trim().length >= 3) {
+                searchAddresses();
+            }
+        });
+    }
+    
+    // Hide suggestions when clicking outside
+    document.addEventListener('click', function(event) {
+        if (suggestionsList && !suggestionsList.contains(event.target) && 
+            addressInput && !addressInput.contains(event.target)) {
+            suggestionsList.innerHTML = '';
+        }
+    });
+});
 </script>
-{% endblock %} 
+{% endblock %}
