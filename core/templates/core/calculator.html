@@ -84,6 +84,11 @@
                                     {{ calculation_results.percentage_of_total|floatformat:1 }}% of total plants ({{ calculation_results.N }})
                                 </small>
                             {% endif %}
+                            
+                            <!-- Debug info: Will be automatically saved for farm detail view -->
+                            <div class="alert alert-info mt-3 small">
+                                <p class="mb-0">Calculation will be saved for {{ selected_farm.name }}</p>
+                            </div>
                         </div>
                         
                         <div class="row mt-4">

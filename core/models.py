@@ -176,3 +176,54 @@ class Farm(models.Model):
 
     def __str__(self):
         return f"{self.name} (Owner: {self.owner.user.username})"
+        
+        
+class SurveillanceCalculation(models.Model):
+    """
+    Stores historical records of surveillance calculations for farms.
+    """
+    SEASON_CHOICES = [
+        ('Wet', 'Wet Season'),
+        ('Dry', 'Dry Season'),
+        ('Flowering', 'Flowering Period'),
+    ]
+    
+    CONFIDENCE_CHOICES = [
+        (90, '90%'),
+        (95, '95%'),
+        (99, '99%'),
+    ]
+    
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='calculations')
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='calculations')
+    date_created = models.DateTimeField(default=timezone.now)
+    
+    # Input parameters
+    season = models.CharField(max_length=20, choices=SEASON_CHOICES)
+    confidence_level = models.IntegerField(choices=CONFIDENCE_CHOICES)
+    
+    # Calculation parameters
+    population_size = models.IntegerField(help_text="Total number of plants in the farm")
+    prevalence_percent = models.DecimalField(max_digits=5, decimal_places=2, help_text="Assumed pest prevalence percentage")
+    margin_of_error = models.DecimalField(max_digits=5, decimal_places=2, default=5.00, help_text="Margin of error percentage")
+    
+    # Results
+    required_plants = models.IntegerField(help_text="Number of plants that should be surveyed")
+    percentage_of_total = models.DecimalField(max_digits=5, decimal_places=2, help_text="Percentage of total plants to survey")
+    survey_frequency = models.IntegerField(null=True, blank=True, help_text="Recommended survey frequency (1 in X plants)")
+    
+    # Metadata
+    is_current = models.BooleanField(default=True, help_text="Whether this is the current calculation for this farm")
+    notes = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['-date_created']
+        
+    def __str__(self):
+        return f"Calculation for {self.farm.name} - {self.date_created.strftime('%Y-%m-%d')}"
+        
+    def save(self, *args, **kwargs):
+        # When saving a new record as current, mark all other records for this farm as not current
+        if self.is_current:
+            SurveillanceCalculation.objects.filter(farm=self.farm, is_current=True).update(is_current=False)
+        super().save(*args, **kwargs)

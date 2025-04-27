@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.db.models import Count, Q
 
 from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm, CalculatorForm
-from .models import Farm, PlantType, PlantPart, Pest, SurveillanceRecord, Grower, Region
+from .models import Farm, PlantType, PlantPart, Pest, SurveillanceRecord, Grower, Region, SurveillanceCalculation
 from .calculations import (
     calculate_surveillance_effort, 
     get_recommended_plant_parts,
@@ -66,16 +66,65 @@ def farm_detail_view(request, farm_id):
     """Display detailed information about a specific farm."""
     farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
     
-    # Set default confidence and determine current season
-    default_confidence = 95
-    default_season = farm.current_season()
-    
-    # Calculate surveillance effort
-    calculation_results = calculate_surveillance_effort(
-        farm=farm,
-        confidence_level_percent=default_confidence,
-        season=default_season
-    )
+    # Check for a saved calculation in the database
+    try:
+        # Get the most recent current calculation
+        saved_calculation = SurveillanceCalculation.objects.filter(
+            farm=farm,
+            is_current=True
+        ).first()
+        
+        if saved_calculation:
+            # Use the saved calculation data
+            default_confidence = saved_calculation.confidence_level
+            default_season = saved_calculation.season
+            
+            # Convert from database model to calculation result format
+            calculation_results = {
+                'N': saved_calculation.population_size,
+                'confidence_level_percent': saved_calculation.confidence_level,
+                'season': saved_calculation.season,
+                'p_percent': float(saved_calculation.prevalence_percent),
+                'd': float(saved_calculation.margin_of_error) / 100,  # Convert percentage back to decimal
+                'required_plants_to_survey': saved_calculation.required_plants,
+                'survey_frequency': saved_calculation.survey_frequency,
+                'percentage_of_total': float(saved_calculation.percentage_of_total),
+                'calculation_date': saved_calculation.date_created.date(),
+                'error': None
+            }
+            
+            # For debug
+            print(f"Using saved calculation from {saved_calculation.date_created}")
+        else:
+            # No saved calculation found, calculate with defaults
+            default_confidence = 95
+            default_season = farm.current_season()
+            calculation_results = calculate_surveillance_effort(
+                farm=farm,
+                confidence_level_percent=default_confidence,
+                season=default_season
+            )
+    except Exception as e:
+        # If anything goes wrong, fall back to a fresh calculation
+        print(f"Error retrieving saved calculation: {e}")
+        default_confidence = 95
+        default_season = farm.current_season()
+        calculation_results = calculate_surveillance_effort(
+            farm=farm,
+            confidence_level_percent=default_confidence,
+            season=default_season
+        )
+    else:
+        # No saved calculation, calculate with defaults
+        default_confidence = 95
+        default_season = farm.current_season()
+        
+        # Calculate surveillance effort
+        calculation_results = calculate_surveillance_effort(
+            farm=farm,
+            confidence_level_percent=default_confidence,
+            season=default_season
+        )
     
     # Get priority pests for this season and plant type
     priority_pests = Pest.get_priority_pests_for_season(
@@ -83,32 +132,43 @@ def farm_detail_view(request, farm_id):
         plant_type=farm.plant_type
     )
     
-    # Get recommended parts to check
+    # Get recommended parts to check (based on the season used in calculation)
+    calculation_season = calculation_results.get('season', default_season)
     recommended_parts = get_recommended_plant_parts(
-        season=default_season,
+        season=calculation_season,
         plant_type=farm.plant_type
     )
     
     # Get recommended frequency and next due date
-    surveillance_frequency = get_surveillance_frequency(default_season, farm)
+    surveillance_frequency = get_surveillance_frequency(calculation_season, farm)
     last_surveillance_date = farm.last_surveillance_date()
     next_due_date = farm.next_due_date()
     
     # Get surveillance records
     surveillance_records = farm.surveillance_records.order_by('-date_performed')
     
+    # Print debug info about calculation results
+    print(f"Calculation Results for farm {farm.id}:")
+    print(f"- Required plants: {calculation_results.get('required_plants_to_survey')}")
+    print(f"- Using: {calculation_results.get('confidence_level_percent')}% confidence")
+    print(f"- Season: {calculation_results.get('season')}")
+    print(f"- Date: {calculation_results.get('calculation_date')}")
+    
     context = {
         'farm': farm,
         'calculation_results': calculation_results,
         'surveillance_records': surveillance_records,
-        'default_season_used': default_season,
-        'default_confidence_used': default_confidence,
+        'default_season_used': calculation_season,
+        'default_confidence_used': calculation_results.get('confidence_level_percent', default_confidence),
         'priority_pests': priority_pests,
         'recommended_parts': recommended_parts,
         'surveillance_frequency': surveillance_frequency,
         'last_surveillance_date': last_surveillance_date,
         'next_due_date': next_due_date
     }
+    
+    # Add debug message
+    messages.info(request, f"Using calculation with {calculation_results.get('required_plants_to_survey')} plants to survey.")
     
     return render(request, 'core/farm_detail.html', context)
 
@@ -158,26 +218,68 @@ def calculator_view(request):
     # Get initial farm_id from query params if available
     initial_farm_id = request.GET.get('farm')
     
-    # Initialize form with GET data or initial farm
-    if initial_farm_id:
+    # Process the form if data was submitted
+    if request.GET:  # Check if there are any GET parameters
+        form = CalculatorForm(grower, request.GET)
+        if form.is_valid():
+            selected_farm_instance = form.cleaned_data['farm']
+            confidence = form.cleaned_data['confidence_level']
+            season = form.cleaned_data['season']
+            
+            # Calculate surveillance effort
+            calculation_results = calculate_surveillance_effort(
+                farm=selected_farm_instance,
+                confidence_level_percent=confidence,
+                season=season
+            )
+            
+            # Save calculation to database for historical record
+            if not calculation_results.get('error') and selected_farm_instance:
+                # First, mark all previous calculations for this farm as not current
+                SurveillanceCalculation.objects.filter(
+                    farm=selected_farm_instance, 
+                    is_current=True
+                ).update(is_current=False)
+                
+                # Create a new calculation record
+                surveillance_calc = SurveillanceCalculation(
+                    farm=selected_farm_instance,
+                    created_by=request.user,
+                    season=season,
+                    confidence_level=confidence,
+                    population_size=calculation_results['N'],
+                    prevalence_percent=calculation_results['p_percent'],
+                    margin_of_error=calculation_results['d'] * 100,  # Convert from decimal to percentage
+                    required_plants=calculation_results['required_plants_to_survey'],
+                    percentage_of_total=calculation_results.get('percentage_of_total', 0),
+                    survey_frequency=calculation_results.get('survey_frequency'),
+                    is_current=True  # This is the current calculation
+                )
+                surveillance_calc.save()
+                
+                # Add success message
+                messages.success(
+                    request, 
+                    f"Surveillance calculation for {selected_farm_instance.name} saved: {calculation_results['required_plants_to_survey']} plants."
+                )
+    # Initialize form with initial farm if provided
+    elif initial_farm_id:
         try:
             initial_farm = Farm.objects.get(id=initial_farm_id, owner=grower)
-            form = CalculatorForm(grower, initial={'farm': initial_farm})
+            # For new form, use defaults from the farm
+            default_season = initial_farm.current_season()
+            form = CalculatorForm(
+                grower, 
+                initial={
+                    'farm': initial_farm,
+                    'confidence_level': 95,
+                    'season': default_season
+                }
+            )
         except Farm.DoesNotExist:
-            form = CalculatorForm(grower, request.GET or None)
+            form = CalculatorForm(grower)
     else:
-        form = CalculatorForm(grower, request.GET or None)
-
-    if form.is_valid():
-        selected_farm_instance = form.cleaned_data['farm']
-        confidence = form.cleaned_data['confidence_level']
-        season = form.cleaned_data['season']
-        
-        calculation_results = calculate_surveillance_effort(
-            farm=selected_farm_instance,
-            confidence_level_percent=confidence,
-            season=season
-        )
+        form = CalculatorForm(grower)  # Just initialize an empty form
 
     context = {
         'form': form,
@@ -212,13 +314,35 @@ def record_surveillance_view(request, farm_id):
                 
             return redirect('core:farm_detail', farm_id=farm.id)
     else:
-        # Pre-populate with recommended surveillance count
-        default_season = farm.current_season()
-        calculation = calculate_surveillance_effort(farm, 95, default_season)
-        
-        initial_data = {}
-        if not calculation.get('error'):
-            initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
+        # Check if we have a saved calculation in the database
+        try:
+            saved_calculation = SurveillanceCalculation.objects.filter(
+                farm=farm,
+                is_current=True
+            ).first()
+            
+            initial_data = {}
+            if saved_calculation:
+                # Use the saved calculation data
+                initial_data['plants_surveyed'] = saved_calculation.required_plants
+                print(f"Using saved calculation: {initial_data['plants_surveyed']} plants")
+            else:
+                # No saved calculation found, use default
+                default_season = farm.current_season()
+                calculation = calculate_surveillance_effort(farm, 95, default_season)
+                
+                if not calculation.get('error'):
+                    initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
+                    print(f"Using default calculation: {initial_data['plants_surveyed']} plants")
+        except Exception as e:
+            # If anything goes wrong, fall back to a default calculation
+            print(f"Error retrieving saved calculation: {e}")
+            default_season = farm.current_season()
+            calculation = calculate_surveillance_effort(farm, 95, default_season)
+            
+            initial_data = {}
+            if not calculation.get('error'):
+                initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
             
         form = SurveillanceRecordForm(farm=farm, initial=initial_data)
     

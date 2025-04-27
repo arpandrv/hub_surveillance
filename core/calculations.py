@@ -56,11 +56,13 @@ def calculate_surveillance_effort(farm, confidence_level_percent, season):
         'N': N,
         'confidence_level_percent': confidence_level_percent,
         'season': season,
+        'farm_id': getattr(farm, 'id', None),  # Add farm ID for reference
+        'calculation_date': timezone.now().date().isoformat(),  # Add date as ISO string
     }
     
     # Validate farm has valid plant count
     if not N or N <= 0:
-        logger.warning(f"Cannot calculate for farm {farm.id}: Missing size or stocking rate")
+        logger.warning(f"Cannot calculate for farm {getattr(farm, 'id', 'unknown')}: Missing size or stocking rate")
         return {
             **calculation_inputs,
             'error': 'Cannot calculate effort: Farm size or stocking rate not set or invalid.',

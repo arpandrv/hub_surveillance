@@ -152,7 +152,7 @@ CONFIDENCE_CHOICES = [
 
 class CalculatorForm(forms.Form):
     farm = forms.ModelChoiceField(
-        queryset=Farm.objects.none(), # Queryset set dynamically in the view
+        queryset=Farm.objects.none(),  # Queryset set dynamically in the view
         label="Select Your Farm",
         empty_label="--------- Select a Farm ---------"
     )
@@ -163,11 +163,38 @@ class CalculatorForm(forms.Form):
     )
     season = forms.ChoiceField(
         choices=SEASON_CHOICES, 
-        initial='Wet', # Default to higher risk
+        initial='Wet',  # Default to higher risk
         label="Select Current Season/Period"
     )
 
     def __init__(self, grower, *args, **kwargs):
+        # Get the initial data, if any
+        initial = kwargs.get('initial', {})
+        
+        # If a farm is selected, update other defaults
+        if 'farm' in initial and initial['farm']:
+            farm = initial['farm']
+            # Set confidence level default to 95% if not specified
+            if 'confidence_level' not in initial:
+                initial['confidence_level'] = 95
+            # Set season default to current season if not specified
+            if 'season' not in initial:
+                try:
+                    # Use the farm's current_season method if available
+                    initial['season'] = farm.current_season()
+                except AttributeError:
+                    # Fall back to 'Wet' if method doesn't exist
+                    initial['season'] = 'Wet'
+            
+            # Update the kwargs with our modified initial data
+            kwargs['initial'] = initial
+        
         super().__init__(*args, **kwargs)
+        
         # Populate farm choices based on the logged-in grower
-        self.fields['farm'].queryset = Farm.objects.filter(owner=grower) 
+        self.fields['farm'].queryset = Farm.objects.filter(owner=grower)
+        
+        # Additional setup for better user experience
+        self.fields['farm'].widget.attrs.update({'class': 'form-select form-select-lg'})
+        self.fields['confidence_level'].widget.attrs.update({'class': 'form-select'})
+        self.fields['season'].widget.attrs.update({'class': 'form-select'}) 
