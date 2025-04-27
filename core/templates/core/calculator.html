@@ -1,22 +1,19 @@
 {% extends 'core/base.html' %}
 
 {% block title %}Surveillance Calculator{% endblock %}
-{% block heading %}Calculate Required Surveillance{% endblock %}
+{% block heading %}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-6">
+    <div class="col-md-6">
         <div class="card shadow-sm mb-4">
             <div class="card-header text-white" style="background-color: #0d6efd;">
-                 <h4 class="mb-0">Calculate Required Surveillance</h4>
+                <h4 class="mb-0">Calculate Required Surveillance</h4>
             </div>
             <div class="card-body">
                 <p class="text-muted">This tool will help you determine how many plants to survey on your property based on selected parameters.</p>
 
                 <form method="get" action="{% url 'core:calculator' %}" class="mb-4">
-                    {# No need for csrf_token in GET form #}
-                    
-                    {# Use form rendering #}
                     <div class="mb-3">
                         <label for="{{ form.farm.id_for_label }}" class="form-label fw-bold">{{ form.farm.label }}:</label>
                         {{ form.farm.errors }}
@@ -27,22 +24,22 @@
                         </select>
                     </div>
 
-                     <div class="mb-3">
+                    <div class="mb-3">
                         <label for="{{ form.confidence_level.id_for_label }}" class="form-label fw-bold">{{ form.confidence_level.label }}:</label>
                         {{ form.confidence_level.errors }}
                         <select name="{{ form.confidence_level.name }}" id="{{ form.confidence_level.id_for_label }}" class="form-select">
-                             {% for choice in form.confidence_level %}
+                            {% for choice in form.confidence_level %}
                                 {{ choice }}
                             {% endfor %}
                         </select>
-                         <div class="form-text">Higher confidence requires checking more plants.</div>
+                        <div class="form-text">Higher confidence requires checking more plants.</div>
                     </div>
 
                     <div class="mb-3">
                         <label for="{{ form.season.id_for_label }}" class="form-label fw-bold">{{ form.season.label }}:</label>
-                         {{ form.season.errors }}
+                        {{ form.season.errors }}
                         <select name="{{ form.season.name }}" id="{{ form.season.id_for_label }}" class="form-select">
-                             {% for choice in form.season %}
+                            {% for choice in form.season %}
                                 {{ choice }}
                             {% endfor %}
                         </select>
@@ -50,38 +47,141 @@
                     </div>
 
                     <div class="d-grid">
-                        <button type="submit" class="btn btn-primary">Calculate Surveillance Plan</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-calculator"></i> Calculate Surveillance Plan
+                        </button>
                     </div>
                 </form>
-
-                {# Display results section #}
-                {% if calculation_results %}
-                    <hr>
-                    <h5>Results for: {{ selected_farm.name }}</h5>
-                    {% if calculation_results.error %}
-                    <div class="alert alert-warning" role="alert">{{ calculation_results.error }}</div>
-                    {% else %}
-                    <div class="alert alert-success" role="alert">
-                         <h6 class="alert-heading">Recommendation:</h6>
-                         <ul class="mb-1">
-                            <li><strong>Required Plants to Survey:</strong> {{ calculation_results.required_plants_to_survey }}</li>
-                            {% if calculation_results.survey_frequency %}
-                            <li>Survey Frequency: Approx. 1 plant in every {{ calculation_results.survey_frequency }} plants</li>
-                            {% endif %}
-                        </ul>
-                        <hr>
-                        <p class="small mb-0 text-muted">
-                            Calculation based on: 
-                            {{ calculation_results.N }} total plants, 
-                            {{ calculation_results.confidence_level_percent }}% confidence, 
-                            {{ calculation_results.season }} season (assuming {{ calculation_results.p_percent|floatformat:0 }}% prevalence), 
-                            5% margin of error.
-                        </p>
-                    </div>
-                    {% endif %}
-                {% endif %}
             </div>
         </div>
+    </div>
+    
+    <div class="col-md-6">
+        {% if calculation_results %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Results for {{ selected_farm.name }}</h5>
+                </div>
+                <div class="card-body">
+                    {% if calculation_results.error %}
+                        <div class="alert alert-warning" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            {{ calculation_results.error }}
+                        </div>
+                    {% else %}
+                        <div class="text-center mb-4">
+                            <div class="display-1 text-success mb-0">{{ calculation_results.required_plants_to_survey }}</div>
+                            <p class="lead">plants to survey</p>
+                            
+                            {% if calculation_results.percentage_of_total is not None %}
+                                <div class="progress mt-3 mb-2" style="height: 10px;">
+                                    <div class="progress-bar bg-success" role="progressbar" 
+                                         style="width: {{ calculation_results.percentage_of_total }}%;" 
+                                         aria-valuenow="{{ calculation_results.percentage_of_total }}" 
+                                         aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                                <small class="text-muted">
+                                    {{ calculation_results.percentage_of_total|floatformat:1 }}% of total plants ({{ calculation_results.N }})
+                                </small>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="row mt-4">
+                            <div class="col-md-6">
+                                <div class="card border-light mb-3">
+                                    <div class="card-header">Sampling Guide</div>
+                                    <div class="card-body">
+                                        {% if calculation_results.survey_frequency %}
+                                            <p class="mb-0">
+                                                <i class="bi bi-check2-square me-2 text-success"></i>
+                                                Check approximately 1 in every {{ calculation_results.survey_frequency }} plants
+                                            </p>
+                                        {% endif %}
+                                        <p class="mb-0">
+                                            <i class="bi bi-search me-2 text-primary"></i>
+                                            {% if selected_farm.distribution_pattern == 'uniform' %}
+                                                Survey plants in a regular grid pattern
+                                            {% elif selected_farm.distribution_pattern == 'clustered' %}
+                                                Select plants from different clusters
+                                            {% else %}
+                                                Survey plants randomly throughout the farm
+                                            {% endif %}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card border-light">
+                                    <div class="card-header">Calculation Parameters</div>
+                                    <div class="card-body">
+                                        <ul class="list-group list-group-flush">
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                <span>Confidence Level</span>
+                                                <span class="badge bg-primary rounded-pill">{{ calculation_results.confidence_level_percent }}%</span>
+                                            </li>
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                <span>Season</span>
+                                                <span class="badge bg-info text-dark rounded-pill">{{ calculation_results.season }}</span>
+                                            </li>
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                <span>Pest Prevalence</span>
+                                                <span class="badge bg-warning text-dark rounded-pill">{{ calculation_results.p_percent|floatformat:0 }}%</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid mt-4">
+                            <a href="{% url 'core:record_surveillance' selected_farm.id %}" class="btn btn-success">
+                                <i class="bi bi-clipboard-check"></i> Record Surveillance for this Farm
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+                {% if not calculation_results.error %}
+                <div class="card-footer bg-light">
+                    <small class="text-muted">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Calculation based on sample size formula with finite population correction.
+                        <a href="#calculation-details" data-bs-toggle="collapse" role="button" aria-expanded="false">
+                            Learn more
+                        </a>
+                    </small>
+                    <div class="collapse mt-2" id="calculation-details">
+                        <div class="card card-body">
+                            <h6>Sample Size Formula</h6>
+                            <p class="mb-1">The calculation uses the formula for proportion estimation with finite population correction:</p>
+                            <p class="mb-1">n = (N × z² × p(1-p)) ÷ (d²(N-1) + z²p(1-p))</p>
+                            <p class="mb-0">Where:<br>
+                            - N = {{ calculation_results.N }} (total plants)<br>
+                            - z = {{ calculation_results.z }} (z-score for {{ calculation_results.confidence_level_percent }}% confidence)<br>
+                            - p = {{ calculation_results.p }} ({{ calculation_results.p_percent }}% expected prevalence in {{ calculation_results.season }} season)<br>
+                            - d = {{ calculation_results.d }} (5% margin of error)
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Why Calculate?</h5>
+                </div>
+                <div class="card-body">
+                    <p>The surveillance calculator helps you:</p>
+                    <ul>
+                        <li>Determine the optimal number of plants to check</li>
+                        <li>Adapt surveillance to seasonal risk factors</li>
+                        <li>Balance thoroughness with practical limitations</li>
+                        <li>Achieve statistical confidence in your surveillance</li>
+                    </ul>
+                    <p class="mb-0">Select your farm and parameters to get started.</p>
+                </div>
+            </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %} 

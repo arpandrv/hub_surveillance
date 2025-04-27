@@ -4,86 +4,113 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Mango Surveillance Hub{% endblock %}</title>
-    {# Add Bootstrap CSS #}
+    
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
     <style>
-        /* Keep basic errorlist style for now, Bootstrap might override */
         .errorlist { color: red; list-style-type: none; padding-left: 0; }
         body { padding-top: 56px; } /* Add padding for fixed navbar */
+        
+        /* Custom theme colors */
+        :root {
+            --primary-color: #0056b3;
+            --secondary-color: #198754;
+            --accent-color: #fd7e14;
+        }
+        
+        /* Enhance card hover effect */
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
+        }
     </style>
 </head>
-<body>
-    {# Updated Bootstrap Navbar #}
-    <nav class="navbar navbar-expand-lg navbar-dark" style="background-color: #0056b3;"> {# Dark blue background #}
-        <div class="container-fluid">
-            {# Point brand link to dashboard #}
-            <a class="navbar-brand" href="{% url 'core:dashboard' %}">Mango Surveillance Tool</a> 
+<body class="d-flex flex-column min-vh-100">
+    <!-- Main Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top" style="background-color: var(--primary-color);">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="{% url 'core:dashboard' %}">
+                <i class="bi bi-shield-check me-2"></i>
+                Mango Surveillance Hub
+            </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 {% if user.is_authenticated %}
-                {# Left aligned links for authenticated users #}
+                <!-- Left aligned links for authenticated users -->
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <li class="nav-item">
-                        {# Point to dashboard view #}
-                        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'core:dashboard' %}">Dashboard</a> 
+                        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'core:dashboard' %}">
+                            <i class="bi bi-speedometer2 me-1"></i> Dashboard
+                        </a> 
                     </li>
                     <li class="nav-item">
-                         {# Point to myfarms view #}
-                        <a class="nav-link {% if request.resolver_match.url_name == 'myfarms' %}active{% endif %}" href="{% url 'core:myfarms' %}">My Farms</a>
+                        <a class="nav-link {% if request.resolver_match.url_name == 'myfarms' %}active{% endif %}" href="{% url 'core:myfarms' %}">
+                            <i class="bi bi-geo-alt me-1"></i> My Farms
+                        </a>
                     </li>
                     <li class="nav-item">
-                        {# Mark active based on url name #}
-                        <a class="nav-link {% if request.resolver_match.url_name == 'calculator' %}active{% endif %}" href="{% url 'core:calculator' %}">Calculate</a>
+                        <a class="nav-link {% if request.resolver_match.url_name == 'calculator' %}active{% endif %}" href="{% url 'core:calculator' %}">
+                            <i class="bi bi-calculator me-1"></i> Calculate
+                        </a>
                     </li>
-                     <li class="nav-item">
-                        {# Mark active based on url name #}
-                        <a class="nav-link {% if request.resolver_match.url_name == 'record_list' %}active{% endif %}" href="{% url 'core:record_list' %}">Records</a>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.resolver_match.url_name == 'record_list' %}active{% endif %}" href="{% url 'core:record_list' %}">
+                            <i class="bi bi-clipboard-data me-1"></i> Records
+                        </a>
                     </li>
                 </ul>
-                {# Right aligned items for authenticated users #}
+                <!-- Right aligned items for authenticated users -->
                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                     <li class="nav-item dropdown">
+                    <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownAccount" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Account ({{ user.username }})
+                            <i class="bi bi-person-circle me-1"></i> {{ user.username }}
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdownAccount">
-                            <li><a class="dropdown-item" href="{% url 'core:profile' %}">Edit Profile</a></li>
-                            <li><a class="dropdown-item" href="{% url 'core:password_change' %}">Change Password</a></li>
+                            <li><a class="dropdown-item" href="{% url 'core:profile' %}"><i class="bi bi-person me-2"></i> Edit Profile</a></li>
+                            <li><a class="dropdown-item" href="{% url 'core:password_change' %}"><i class="bi bi-key me-2"></i> Change Password</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <form method="post" action="{% url 'core:logout' %}" class="d-inline">
                                     {% csrf_token %}
-                                    <button type="submit" class="dropdown-item">Logout</button>
+                                    <button type="submit" class="dropdown-item"><i class="bi bi-box-arrow-right me-2"></i> Logout</button>
                                 </form>
                             </li>
                         </ul>
                     </li>
                 </ul>
                 {% else %}
-                {# Right aligned items for anonymous users #}
-                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                     <li class="nav-item">
-                         <a href="{% url 'core:login' %}" class="nav-link">Login</a>
-                     </li>
-                     <li class="nav-item">
-                          <a href="{% url 'core:signup' %}" class="nav-link">Register</a>
-                     </li>
-                 </ul>
+                <!-- Right aligned items for anonymous users -->
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a href="{% url 'core:login' %}" class="nav-link"><i class="bi bi-box-arrow-in-right me-1"></i> Login</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{% url 'core:signup' %}" class="nav-link"><i class="bi bi-person-plus me-1"></i> Register</a>
+                    </li>
+                </ul>
                 {% endif %}
             </div>
         </div>
     </nav>
 
-    {# Main Content Area (Add some vertical padding) #}
+    <!-- Main Content Area -->
     <div class="container my-4">
-        <h1 class="mb-4">{% block heading %}{% endblock %}</h1>
+        {% if block.super %}
+            <h1 class="mb-4">{% block heading %}{% endblock %}</h1>
+        {% endif %}
 
-        {# Display messages with Bootstrap alerts #}
+        <!-- Display messages with Bootstrap alerts -->
         {% if messages %}
             {% for message in messages %}
                 <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                    <i class="bi bi-info-circle-fill me-2"></i>
                     {{ message }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
@@ -96,7 +123,7 @@
         </main>
     </div>
 
-    {# Footer #}
+    <!-- Footer -->
     <footer class="mt-auto py-3 bg-light text-center">
         <div class="container">
             <span class="text-muted">© {% now "Y" %} Mango Pest Surveillance System</span><br>
@@ -104,7 +131,7 @@
         </div>
     </footer>
 
-    {# Add Bootstrap JS Bundle #}
+    <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html> 

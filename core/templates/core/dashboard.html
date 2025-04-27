@@ -2,36 +2,171 @@
 
 {% block title %}Dashboard{% endblock %}
 
-{% block heading %}Dashboard{% endblock %}
+{% block heading %}{# No main heading here #}{% endblock %}
 
 {% block content %}
-<div class="alert alert-info" role="alert">
-  Welcome to your Mango Surveillance Dashboard, {{ grower.user.username }}!
+<div class="alert alert-info d-flex align-items-center mb-4" role="alert">
+  <i class="bi bi-info-circle-fill me-2"></i>
+  <div>
+    Welcome to your Mango Surveillance Dashboard, <strong>{{ grower.user.username }}</strong>!
+    <span class="d-none d-md-inline">Here you can monitor your farms and surveillance activities at a glance.</span>
+  </div>
 </div>
 
-<p>This page will eventually show summaries and alerts.</p>
+<div class="row mb-4">
+    <!-- Summary Statistics Cards -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100 border-primary">
+            <div class="card-body text-center">
+                <div class="display-4 text-primary mb-2">{{ grower.farms.count }}</div>
+                <h5 class="card-title">Farms Managed</h5>
+                <p class="card-text text-muted small">
+                    {% if total_plants %}
+                        Managing {{ total_plants }} total plants
+                    {% else %}
+                        Add size details to your farms
+                    {% endif %}
+                </p>
+                <a href="{% url 'core:myfarms' %}" class="btn btn-outline-primary">View Farms</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-3">
+        <div class="card h-100 border-success">
+            <div class="card-body text-center">
+                <div class="display-4 text-success mb-2">{{ surveillance_count|default:"0" }}</div>
+                <h5 class="card-title">Surveillance Records</h5>
+                <p class="card-text text-muted small">
+                    {% if latest_record %}
+                        Last record: {{ latest_record.date_performed|date:"M j, Y" }}
+                    {% else %}
+                        No surveillance recorded yet
+                    {% endif %}
+                </p>
+                <a href="{% url 'core:record_list' %}" class="btn btn-outline-success">View Records</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-3">
+        <div class="card h-100 border-danger">
+            <div class="card-body text-center">
+                <div class="display-4 text-danger mb-2">{{ due_farms_count|default:"0" }}</div>
+                <h5 class="card-title">Farms Due For Check</h5>
+                <p class="card-text text-muted small">
+                    {% if due_farms_count > 0 %}
+                        Surveillance needed on {{ due_farms_count }} farm{{ due_farms_count|pluralize }}
+                    {% else %}
+                        All farms are up to date
+                    {% endif %}
+                </p>
+                <a href="{% url 'core:calculator' %}" class="btn btn-outline-danger">Calculate Needs</a>
+            </div>
+        </div>
+    </div>
+</div>
 
-{# Example placeholder content #}
-<div class="row">
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body text-center">
-                <h5 class="card-title">My Farms</h5>
-                <p class="card-text fs-3">{{ grower.farms.count }}</p>
-                <a href="{% url 'core:myfarms' %}" class="btn btn-primary">View Farms</a>
+<!-- Recent Activity Section -->
+<div class="row mb-4">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Recent Surveillance Activity</h5>
+                <a href="{% url 'core:record_list' %}" class="btn btn-sm btn-outline-secondary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_records %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Farm</th>
+                                <th>Plants Checked</th>
+                                <th>Findings</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for record in recent_records %}
+                            <tr>
+                                <td>{{ record.date_performed|date:"M j, Y" }}</td>
+                                <td><a href="{% url 'core:farm_detail' record.farm.id %}">{{ record.farm.name }}</a></td>
+                                <td>{{ record.plants_surveyed }}</td>
+                                <td>
+                                    {% if record.pests_found.exists %}
+                                        <span class="badge bg-danger">Pests Found</span>
+                                    {% else %}
+                                        <span class="badge bg-success">No Pests</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-4 text-center">
+                    <p class="text-muted">No surveillance records found.</p>
+                    <p>Start by recording surveillance on one of your farms:</p>
+                    <a href="{% url 'core:myfarms' %}" class="btn btn-primary">Go to My Farms</a>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
-     <div class="col-md-4">
-        <div class="card">
-            <div class="card-body text-center">
-                <h5 class="card-title">Total Records</h5>
-                <p class="card-text fs-3">{{ grower.surveillance_records.count }}</p>
-                <a href="{% url 'core:record_list' %}" class="btn btn-primary">View Records</a>
+    
+    <!-- Calendar/Upcoming Section -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Upcoming Surveillance</h5>
+            </div>
+            <div class="card-body">
+                {% if due_farms %}
+                <ul class="list-group">
+                    {% for farm in due_farms %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <a href="{% url 'core:farm_detail' farm.id %}">{{ farm.name }}</a>
+                            <small class="d-block text-muted">Due: {{ farm.next_due_date|date:"M j" }}</small>
+                        </div>
+                        <a href="{% url 'core:record_surveillance' farm.id %}" class="btn btn-sm btn-primary">Record</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-3">
+                    <p class="text-muted mb-3">No upcoming surveillance due.</p>
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        All farms are up to date!
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Weather Alert Card (placeholder) -->
+        <div class="card mt-3 bg-light">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-cloud-sun me-2"></i>Current Season
+                </h5>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="fs-5">{{ current_season }}</span>
+                    <span class="badge bg-info text-dark">{{ season_label }}</span>
+                </div>
+                <small class="text-muted">Surveillance needed: 
+                    {% if current_season == 'Wet' %}
+                        <span class="text-danger">High Priority</span>
+                    {% else %}
+                        <span class="text-warning">Medium Priority</span>
+                    {% endif %}
+                </small>
             </div>
         </div>
     </div>
-    {# Add more summary cards later #}
 </div>
 
 {% endblock %} 

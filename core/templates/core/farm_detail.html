@@ -43,57 +43,109 @@
 {# Green Recommended Surveillance Section #}
 <div class="card shadow-sm mb-4">
     <div class="card-header text-white" style="background-color: #198754;">
-        <h5 class="mb-0">Current Recommended Surveillance</h5>
-        <small>(Calculated using {{ default_confidence_used }}% confidence for {{ default_season_used }} season prevalence)</small> 
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0">Current Recommended Surveillance</h5>
+                <small>(Calculated using {{ default_confidence_used }}% confidence for {{ default_season_used }} season prevalence)</small>
+            </div>
+            <a href="{% url 'core:calculator' %}?farm={{ farm.id }}" class="btn btn-sm btn-outline-light">
+                <i class="bi bi-calculator"></i> Recalculate
+            </a>
+        </div>
     </div>
     <div class="card-body">
         {% if calculation_results and not calculation_results.error %}
         <div class="row">
             <div class="col-md-4">
-                <h5>Inspect {{ calculation_results.required_plants_to_survey }} plants</h5>
-                {# Placeholder percentage calculation - NOW USE PRE-CALCULATED VALUE #}
+                <div class="d-flex align-items-center mb-2">
+                    <h4 class="mb-0 me-2">{{ calculation_results.required_plants_to_survey }}</h4>
+                    <span class="text-muted">plants to inspect</span>
+                </div>
+                
                 {% if calculation_results.percentage_of_total is not None %}
-                    <p class="text-muted small">({{ calculation_results.percentage_of_total|floatformat:1 }}% of total plants)</p>
+                    <div class="progress mb-2" style="height: 5px;">
+                        <div class="progress-bar bg-success" role="progressbar" 
+                             style="width: {{ calculation_results.percentage_of_total }}%;" 
+                             aria-valuenow="{{ calculation_results.percentage_of_total }}" 
+                             aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <p class="text-muted small mb-3">({{ calculation_results.percentage_of_total|floatformat:1 }}% of total plants)</p>
                 {% endif %}
-                {# Placeholder Priority Pests - Needs actual logic/data #}
-                <p class="mt-3"><strong>Check for these priority pests:</strong></p>
-                <ul>
-                    <li>Anthracnose</li>
-                    <li>Mango Fruit Fly</li>
+                
+                <p class="mt-3 fw-bold">Check for these priority pests:</p>
+                <ul class="list-group">
+                    {% for pest in priority_pests %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            {{ pest.name }}
+                            <span class="badge bg-danger rounded-pill">High</span>
+                        </li>
+                    {% empty %}
+                        <li class="list-group-item">Anthracnose</li>
+                        <li class="list-group-item">Mango Fruit Fly</li>
+                    {% endfor %}
                 </ul>
             </div>
             <div class="col-md-4">
-                <p><strong>Plant parts to inspect:</strong></p>
-                {# Placeholder Plant Parts - Needs actual logic/data #}
-                 <ul>
-                    <li>Leaves</li>
-                    <li>Fruit</li>
-                    <li>Trunk</li>
-                    <li>Branches</li>
-                    <li>Flowers</li>
+                <p class="fw-bold">Plant parts to inspect:</p>
+                <ul class="list-group">
+                    {% for part in recommended_parts %}
+                        <li class="list-group-item">{{ part }}</li>
+                    {% empty %}
+                        <li class="list-group-item">Leaves</li>
+                        <li class="list-group-item">Fruit</li>
+                        <li class="list-group-item">Trunk</li>
+                    {% endfor %}
                 </ul>
+                
+                {% if calculation_results.survey_frequency %}
+                <div class="mt-3 text-center">
+                    <span class="badge bg-info text-dark p-2">
+                        Check approximately 1 in every {{ calculation_results.survey_frequency }} plants
+                    </span>
+                </div>
+                {% endif %}
             </div>
-             <div class="col-md-4">
-                 <p><strong>Surveillance frequency:</strong></p>
-                 {# Placeholder Frequency - Needs actual logic/data #}
-                 <p>Every 7 days</p>
-                 <p class="mt-3"><strong>Next surveillance due by:</strong></p>
-                 {# Placeholder Due Date - Needs actual logic/data #}
-                 <p>May 3, 2025</p>
-             </div>
+            <div class="col-md-4">
+                <div class="card border-info mb-3">
+                    <div class="card-header bg-info text-white">Surveillance Schedule</div>
+                    <div class="card-body">
+                        <p class="fw-bold mb-1">Recommended frequency:</p>
+                        <p>Every {{ surveillance_frequency }} days</p>
+                        
+                        <p class="fw-bold mb-1 mt-3">Next surveillance due by:</p>
+                        <p class="fs-5 text-danger">
+                            {% if next_due_date %}
+                                {{ next_due_date|date:"F j, Y" }}
+                            {% else %}
+                                As soon as possible
+                            {% endif %}
+                        </p>
+                        
+                        {% if last_surveillance_date %}
+                        <small class="text-muted">
+                            Last surveillance: {{ last_surveillance_date|date:"F j, Y" }}
+                        </small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
         </div>
         <hr>
         <div class="d-flex justify-content-between align-items-center">
-            {# Placeholder Recalculate Button #}
-            <button type="button" class="btn btn-success" disabled>Recalculate Surveillance Plan</button> 
-            <a href="{% url 'core:record_surveillance' farm.id %}" class="btn btn-primary">Record Surveillance Activity</a>
+            <a href="{% url 'core:calculator' %}?farm={{ farm.id }}" class="btn btn-success">
+                <i class="bi bi-calculator"></i> Customize Surveillance Plan
+            </a>
+            <a href="{% url 'core:record_surveillance' farm.id %}" class="btn btn-primary">
+                <i class="bi bi-journal-check"></i> Record Surveillance Activity
+            </a>
         </div>
-         {% else %}
+        {% else %}
             <div class="alert alert-warning" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
                 Cannot display recommended surveillance. Farm details (size, stocking rate) may be missing or invalid. 
                 <a href="{% url 'core:edit_farm' farm.id %}" class="alert-link">Edit farm details</a>.
             </div>
-         {% endif %}
+        {% endif %}
     </div>
 </div>
 
