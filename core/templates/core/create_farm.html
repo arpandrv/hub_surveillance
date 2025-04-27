@@ -55,11 +55,10 @@
                         No problem! You can map your farm's boundary precisely using GPS later via the 'Map Boundary' option on the farm details page. For now, you can leave the address field blank or add a general location description below if you wish.
                     </div>
 
-                    <div class="mb-3" id="general-location-field">
-                        <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
-                        <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" class="form-control {% if form.location_description.errors %}is-invalid{% endif %}" rows="2" placeholder="{{ form.location_description.field.widget.attrs.placeholder }}">{{ form.location_description.value|default:'' }}</textarea>
-                        <div class="form-text">e.g., "Near Katherine River", "Smith Property via XYZ Road"</div>
-                        {% if form.location_description.errors %}<div class="invalid-feedback">{{ form.location_description.errors|striptags }}</div>{% endif %}
+                    <div class="mb-3" id="street-address-field">
+                        <label for="{{ form.street_address.id_for_label }}" class="form-label fw-bold">{{ form.street_address.label }}:</label>
+                        <input type="text" name="{{ form.street_address.name }}" id="{{ form.street_address.id_for_label }}" class="form-control {% if form.street_address.errors %}is-invalid{% endif %}" value="{{ form.street_address.value|default:'' }}">
+                        {% if form.street_address.errors %}<div class="invalid-feedback">{{ form.street_address.errors|striptags }}</div>{% endif %}
                     </div>
 
                     {# Size and Stocking Rate #}
@@ -123,15 +122,15 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const addressCheckbox = document.getElementById('{{ form.has_exact_address.id_for_label }}');
-    const generalLocationField = document.getElementById('general-location-field');
+    const streetAddressField = document.getElementById('street-address-field');
     const generalLocationHelp = document.getElementById('general-location-help');
 
     function toggleLocationFields() {
         if (addressCheckbox.checked) {
-            generalLocationField.style.display = 'none';
+            streetAddressField.style.display = 'block';
             generalLocationHelp.style.display = 'none';
         } else {
-            generalLocationField.style.display = 'block';
+            streetAddressField.style.display = 'none';
             generalLocationHelp.style.display = 'block';
         }
     }

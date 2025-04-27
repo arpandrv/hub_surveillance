@@ -50,6 +50,8 @@ class FarmForm(forms.ModelForm):
     # Add checkbox for address - this doesn't map directly to a model field
     # It will control display logic in the template via JavaScript (to be added)
     has_exact_address = forms.BooleanField(required=False, label="Do you have an exact street address for this farm?", initial=False)
+    # Add street address field that will be shown when has_exact_address is checked
+    street_address = forms.CharField(max_length=255, required=False, label="Street Address")
 
     class Meta:
         model = Farm
@@ -57,6 +59,7 @@ class FarmForm(forms.ModelForm):
             'name', 
             'region',
             # has_exact_address - not a model field 
+            # street_address - not a model field
             'location_description',
             'size_hectares', 
             'stocking_rate', 
@@ -66,7 +69,6 @@ class FarmForm(forms.ModelForm):
             'location_description': forms.Textarea(attrs={'rows': 3, 'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'}),
         }
         labels = {
-            'location_description': 'General Location (Optional)',
             'stocking_rate': 'Stocking Rate (plants per hectare)'
         }
 
