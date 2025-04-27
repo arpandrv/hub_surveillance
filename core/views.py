@@ -15,6 +15,7 @@ from .calculations import (
     get_recommended_plant_parts,
     get_surveillance_frequency
 )
+from .geoscape_utils import fetch_cadastral_boundary
 
 def signup_view(request):
     """Handle user registration and Grower profile creation."""
@@ -52,11 +53,26 @@ def create_farm_view(request):
             try:
                 mango_type = PlantType.objects.get(name='Mango')
             except PlantType.DoesNotExist:
-                raise Http404("Default 'Mango' PlantType not found in database. Please add it via the admin interface.")
+                # Consider creating it if it doesn't exist, or logging a clearer error
+                messages.error(request, "Default 'Mango' PlantType not found. Please add it via admin.")
+                # Optionally render the form again or redirect
+                return render(request, 'core/create_farm.html', {'form': form})
             
             farm.plant_type = mango_type
             farm.save()
             messages.success(request, f"Farm '{farm.name}' was created successfully!")
+
+            # --- Fetch boundary after successful save ---
+            if farm.geoscape_address_id and not farm.boundary:
+                boundary_polygon = fetch_cadastral_boundary(farm.geoscape_address_id)
+                if boundary_polygon:
+                    farm.boundary = boundary_polygon
+                    farm.save(update_fields=['boundary']) # Save only the boundary field
+                    messages.info(request, f"Cadastral boundary retrieved for '{farm.name}'.")
+                else:
+                    messages.warning(request, f"Could not automatically retrieve cadastral boundary for '{farm.name}'. You may need to map it manually.")
+            # -------------------------------------------
+
             return redirect('core:farm_detail', farm_id=farm.id)
     else:
         form = FarmForm()
@@ -178,13 +194,36 @@ def farm_detail_view(request, farm_id):
 def edit_farm_view(request, farm_id):
     """Handle farm editing."""
     farm_instance = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    original_address_id = farm_instance.geoscape_address_id # Store before binding form
     
     if request.method == 'POST':
         form = FarmForm(request.POST, instance=farm_instance)
         if form.is_valid():
-            form.save()
-            messages.success(request, f"Farm '{farm_instance.name}' was updated successfully!")
-            return redirect('core:farm_detail', farm_id=farm_instance.id)
+            updated_farm = form.save() # Save all form changes first
+            messages.success(request, f"Farm '{updated_farm.name}' was updated successfully!")
+
+            # --- Fetch boundary after successful save (if address ID changed or boundary missing) ---
+            address_id_changed = (updated_farm.geoscape_address_id != original_address_id)
+            boundary_missing = not updated_farm.boundary
+
+            if updated_farm.geoscape_address_id and (address_id_changed or boundary_missing):
+                boundary_polygon = fetch_cadastral_boundary(updated_farm.geoscape_address_id)
+                if boundary_polygon:
+                    updated_farm.boundary = boundary_polygon
+                    # Save only the boundary field separately
+                    updated_farm.save(update_fields=['boundary'])
+                    messages.info(request, f"Cadastral boundary retrieved/updated for '{updated_farm.name}'.")
+                else:
+                    # Clear existing boundary if fetch fails after address change?
+                    if address_id_changed and updated_farm.boundary:
+                         updated_farm.boundary = None
+                         updated_farm.save(update_fields=['boundary'])
+                         messages.warning(request, f"Address changed, but could not retrieve new boundary for '{updated_farm.name}'. Boundary cleared.")
+                    elif boundary_missing:
+                         messages.warning(request, f"Could not automatically retrieve cadastral boundary for '{updated_farm.name}'. You may need to map it manually.")
+            # ----------------------------------------------------------------------------------
+
+            return redirect('core:farm_detail', farm_id=updated_farm.id)
     else:
         form = FarmForm(instance=farm_instance)
     

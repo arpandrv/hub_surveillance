@@ -40,37 +40,78 @@ class SignUpForm(forms.ModelForm):
         return user 
 
 class FarmForm(forms.ModelForm):
-    # Add Region field
-    # Temporarily allow all regions for testing
+    # Region field (already exists)
     region = forms.ModelChoiceField(
-        queryset=Region.objects.all(),  # Show all regions temporarily
-        empty_label=None, # No empty choice needed if required
+        queryset=Region.objects.all(),
+        empty_label=None,
         required=True
     )
-    # Add checkbox for address - this doesn't map directly to a model field
-    # It will control display logic in the template via JavaScript (to be added)
-    has_exact_address = forms.BooleanField(required=False, label="Do you have an exact street address for this farm?", initial=False)
-    # Add street address field that will be shown when has_exact_address is checked
-    street_address = forms.CharField(max_length=255, required=False, label="Street Address")
+    # Remove manual definitions for has_exact_address and street_address
+    # They will now come from the model fields
 
     class Meta:
         model = Farm
         fields = [
             'name', 
             'region',
-            # has_exact_address - not a model field 
-            # street_address - not a model field
-            'location_description',
+            'has_exact_address',      # Added model field
+            'geoscape_address_id',  # Added model field
+            'formatted_address',    # Added model field
+            'location_description', # Existing field
             'size_hectares', 
             'stocking_rate', 
             'distribution_pattern'
         ]
         widgets = {
-            'location_description': forms.Textarea(attrs={'rows': 3, 'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'}),
+            'location_description': forms.Textarea(attrs={'rows': 2, 'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'}),
+            # Use hidden inputs for API data
+            'geoscape_address_id': forms.HiddenInput(),
+            'formatted_address': forms.HiddenInput(),
+            # Explicitly use CheckboxInput for clarity
+            'has_exact_address': forms.CheckboxInput(), 
         }
         labels = {
-            'stocking_rate': 'Stocking Rate (plants per hectare)'
+            'stocking_rate': 'Stocking Rate (plants per hectare)',
+            'has_exact_address': 'Do you have an exact street address for this farm?' # Add label for the checkbox
         }
+        # Set fields as not required initially
+        required = {
+            'geoscape_address_id': False,
+            'formatted_address': False,
+            'has_exact_address': False,
+            'location_description': False, # Only required if no exact address
+            'size_hectares': False,
+            'stocking_rate': False,
+        }
+
+    # Add custom validation if needed
+    def clean(self):
+        cleaned_data = super().clean()
+        has_exact = cleaned_data.get('has_exact_address')
+        geoscape_id = cleaned_data.get('geoscape_address_id')
+        formatted_addr = cleaned_data.get('formatted_address')
+        location_desc = cleaned_data.get('location_description')
+
+        if has_exact:
+            # If checkbox is checked, require the hidden fields to have been populated by JS
+            if not geoscape_id or not formatted_addr:
+                 # This error might be hard for users to see as fields are hidden.
+                 # Consider adding a non-field error or JS validation.
+                 raise ValidationError("An exact address was indicated, but address details were not selected. Please use the address search.")
+            # Clear location description if exact address is given
+            cleaned_data['location_description'] = '' 
+        else:
+            # If checkbox is unchecked, require location description (unless it's optional)
+            if not location_desc:
+                 # Make location description required only if exact address is NOT provided
+                 # self.add_error('location_description', "Please provide a general location description if you don\'t have an exact address.")
+                 # Decided to keep location_description optional for now based on template text
+                 pass
+            # Clear exact address fields if general location is used
+            cleaned_data['geoscape_address_id'] = None
+            cleaned_data['formatted_address'] = ''
+
+        return cleaned_data
 
 class SurveillanceRecordForm(forms.ModelForm):
     plant_parts_checked = forms.ModelMultipleChoiceField(

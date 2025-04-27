@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from decimal import Decimal
+# Import GIS models if using GeoDjango
+from django.contrib.gis.db import models as gis_models
 
 class Grower(models.Model):
     """
@@ -151,6 +153,31 @@ class Farm(models.Model):
         blank=True, 
         null=True, 
         help_text="e.g., \"Near Katherine River\", \"Smith Property via XYZ Road\""
+    )
+    # Fields for Geoscape API address results
+    geoscape_address_id = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        unique=True, # Assume one farm per Geoscape ID
+        help_text="Unique identifier from Geoscape API for the selected address"
+    )
+    formatted_address = models.CharField(
+        max_length=500, # Allow ample space for long addresses
+        blank=True, 
+        null=True, 
+        help_text="Full address string selected via Geoscape API"
+    )
+    has_exact_address = models.BooleanField(
+        default=False,
+        help_text="Indicates if the user provided an exact address via search"
+    )
+    # GIS Field for storing the cadastral boundary
+    boundary = gis_models.MultiPolygonField(
+        srid=4326, # WGS84 standard coordinate system
+        null=True, 
+        blank=True, 
+        help_text="Cadastral boundary polygon from Geoscape API"
     )
 
     def total_plants(self):
