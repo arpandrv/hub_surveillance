@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from decimal import Decimal
 # Import GIS models if using GeoDjango
-from django.contrib.gis.db import models as gis_models
+# from django.contrib.gis.db import models as gis_models
 
 class Grower(models.Model):
     """
@@ -173,11 +173,10 @@ class Farm(models.Model):
         help_text="Indicates if the user provided an exact address via search"
     )
     # GIS Field for storing the cadastral boundary
-    boundary = gis_models.MultiPolygonField(
-        srid=4326, # WGS84 standard coordinate system
-        null=True, 
-        blank=True, 
-        help_text="Cadastral boundary polygon from Geoscape API"
+    boundary = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Cadastral boundary polygon data (e.g., GeoJSON) from Geoscape API"
     )
 
     def total_plants(self):

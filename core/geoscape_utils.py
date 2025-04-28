@@ -1,23 +1,22 @@
 import requests
 from django.conf import settings
-from django.contrib.gis.geos import GEOSGeometry, MultiPolygon
-from django.contrib.gis.geos.error import GEOSException
 import logging
+from typing import Dict, Any # Added for type hinting
 
 logger = logging.getLogger(__name__)
 
 GEOSCAPE_CADASTRE_URL = "https://api.psma.com.au/v1/landParcels/cadastres/findByIdentifier"
 
-def fetch_cadastral_boundary(address_id: str) -> MultiPolygon | None:
+def fetch_cadastral_boundary(address_id: str) -> Dict[str, Any] | None:
     """
-    Fetches the cadastral boundary MultiPolygon for a given Geoscape address ID.
+    Fetches the cadastral boundary geometry JSON for a given Geoscape address ID.
 
     Args:
         address_id: The Geoscape address ID (e.g., GANT_xxxxxxxx).
 
     Returns:
-        A GEOS MultiPolygon object representing the boundary, or None if an error occurs
-        or the boundary is not found.
+        A dictionary representing the GeoJSON geometry part of the boundary,
+        or None if an error occurs or the boundary is not found.
     """
     if not address_id:
         logger.warning("fetch_cadastral_boundary called with no address_id")
@@ -51,27 +50,14 @@ def fetch_cadastral_boundary(address_id: str) -> MultiPolygon | None:
             logger.warning(f"No geometry found in the first feature for addressId: {address_id}")
             return None
 
-        # Create a GEOSGeometry object from the GeoJSON geometry part
-        # GEOSGeometry can handle various types (Polygon, MultiPolygon)
-        geos_geom = GEOSGeometry(str(geometry_data), srid=4326) # WGS84
-
-        # Ensure it's a MultiPolygon, converting if necessary
-        if isinstance(geos_geom, MultiPolygon):
-            logger.info(f"Successfully fetched MultiPolygon for addressId: {address_id}")
-            return geos_geom
-        elif hasattr(geos_geom, 'geom_type') and geos_geom.geom_type == 'Polygon':
-             logger.info(f"Fetched Polygon for addressId: {address_id}, converting to MultiPolygon.")
-             # Convert single Polygon to MultiPolygon
-             return MultiPolygon(geos_geom, srid=geos_geom.srid)
-        else:
-             logger.warning(f"Geometry type {type(geos_geom)} is not Polygon or MultiPolygon for addressId: {address_id}")
-             return None
-
+        # Return the raw geometry dictionary
+        logger.info(f"Successfully fetched geometry data for addressId: {address_id}")
+        return geometry_data
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Network error fetching Geoscape cadastral data for {address_id}: {e}")
         return None
-    except (KeyError, IndexError, ValueError, GEOSException) as e:
+    except (KeyError, IndexError, ValueError) as e: # Removed GEOSException
          logger.error(f"Error processing Geoscape cadastral response for {address_id}: {e}")
          return None
     except Exception as e: # Catch any other unexpected errors

@@ -1,0 +1,105 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Geoscape API Test{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Geoscape Cadastral API Test Page</h2>
+    <p>Open the browser console (F12) to see the results of the API call.</p>
+    <div id="test-output" class="alert alert-info" role="alert">
+        Check the console for API request details and geometry output...
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("Geoscape test script started.");
+
+    // WARNING: This is for local testing ONLY. Do NOT deploy with your API key exposed like this.
+    const GEOSCAPE_API_KEY = 'lwaGRBA6UAZx5zGYh1zSO8QgdGoJwOlc'; // !!! Use your real key !!!
+    const addressIdToTest = 'GANT_703826366'; // !!! Use a real address ID !!!
+
+    const outputDiv = document.getElementById('test-output');
+
+    function logToPage(message, type = 'info') {
+        const p = document.createElement('p');
+        p.textContent = message;
+        if (type === 'error') p.style.color = 'red';
+        if (type === 'success') p.style.color = 'green';
+        if (type === 'warn') p.style.color = 'orange';
+        outputDiv.appendChild(p);
+        if (type === 'error') console.error(message);
+        else console.log(message);
+    }
+
+    // Function to display JSON data in a <pre> tag
+    function displayJsonOnPage(jsonData) {
+        const pre = document.createElement('pre');
+        pre.style.backgroundColor = '#f8f9fa'; // Light background for readability
+        pre.style.padding = '10px';
+        pre.style.border = '1px solid #dee2e6';
+        pre.style.borderRadius = '4px';
+        pre.style.maxHeight = '400px'; // Prevent extremely long responses from taking over
+        pre.style.overflowY = 'auto'; // Add scroll if needed
+        pre.textContent = JSON.stringify(jsonData, null, 2); // Pretty print JSON
+        outputDiv.appendChild(pre);
+    }
+
+    outputDiv.innerHTML = ''; // Clear initial message
+
+    if (!addressIdToTest) {
+        logToPage("Error: No Geoscape Address ID provided in the script.", 'error');
+        return;
+    }
+    if (!GEOSCAPE_API_KEY || GEOSCAPE_API_KEY === 'YOUR_ACTUAL_API_KEY_HERE') {
+        logToPage("Error: Geoscape API Key is not set in the script. Please replace the placeholder.", 'error');
+        return;
+    }
+
+    const geoscapeUrl = `https://api.psma.com.au/v1/landParcels/cadastres/findByIdentifier?addressId=${encodeURIComponent(addressIdToTest)}`;
+
+    const headers = {
+        'Accept': 'application/json',
+        'Authorization': GEOSCAPE_API_KEY
+    };
+
+    logToPage(`Attempting to fetch boundary for address ID: ${addressIdToTest}`);
+
+    fetch(geoscapeUrl, {
+        method: 'GET',
+        headers: headers
+    })
+    .then(response => {
+        if (!response.ok) {
+            logToPage(`HTTP error! Status: ${response.status}`, 'error');
+            return response.text().then(text => {
+                 throw new Error(`Geoscape API error: ${response.status} - ${text || 'No error body'}`);
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        logToPage("Geoscape API Response Received:");
+        displayJsonOnPage(data); // Display the full JSON response on the page
+        console.log("Full API Response:", data);
+
+        if (data && data.features && data.features.length > 0 && data.features[0].geometry) {
+            const geometry = data.features[0].geometry;
+            logToPage("Successfully Extracted Geometry (also shown above).", 'success');
+            // We could display geometry separately if needed, but it's in the full response above
+            // displayJsonOnPage(geometry); 
+            console.log("Extracted Geometry:", geometry);
+        } else {
+            logToPage("Warning: No valid geometry found in the response for this address ID.", 'warn');
+        }
+    })
+    .catch(error => {
+        logToPage(`Error fetching or processing Geoscape data: ${error.message}`, 'error');
+        console.error('Fetch Error Details:', error);
+    });
+});
+</script>
+{% endblock extra_js %} 

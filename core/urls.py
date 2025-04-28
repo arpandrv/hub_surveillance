@@ -47,4 +47,13 @@ urlpatterns = [
     
     # API Endpoints
     path('api/address-suggestions/', views.address_suggestion_view, name='api_address_suggestions'),
+    # Removed non-existent API view path
+    # path('api/calculate_surveillance/', views.calculate_surveillance_api, name='calculate_surveillance_api'), 
+    # Removed non-existent API view path
+    # path('api/geoscape/suggest/', views.geoscape_suggest_api, name='geoscape_suggest_api'),
+    # Removed non-existent API view path
+    # path('api/geoscape/retrieve/', views.geoscape_retrieve_api, name='geoscape_retrieve_api'),
+
+    # Test page for Geoscape Cadastral API
+    path('test/geoscape_cadastre/', views.geoscape_test_view, name='geoscape_test'),
 ]
