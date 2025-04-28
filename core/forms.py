@@ -2,9 +2,15 @@ from django import forms
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.core.exceptions import ValidationError
-from .models import Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region
+
+from .models import (
+    Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region,
+    SEASON_CHOICES, CONFIDENCE_CHOICES
+)
+
 
 class SignUpForm(forms.ModelForm):
+    """Form for user registration and Grower profile creation."""
     # Fields for the User model
     password = forms.CharField(widget=forms.PasswordInput)
     confirm_password = forms.CharField(widget=forms.PasswordInput)
@@ -16,9 +22,10 @@ class SignUpForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'password'] # Fields from User model to include directly
+        fields = ['username', 'email', 'password']  # Fields from User model to include directly
 
     def clean_confirm_password(self):
+        """Ensure passwords match."""
         password = self.cleaned_data.get('password')
         confirm_password = self.cleaned_data.get('confirm_password')
         if password and confirm_password and password != confirm_password:
@@ -26,6 +33,15 @@ class SignUpForm(forms.ModelForm):
         return confirm_password
 
     def save(self, commit=True):
+        """
+        Save the User instance and create the Grower profile.
+        
+        Args:
+            commit: Whether to save to database
+            
+        Returns:
+            User instance with associated Grower profile
+        """
         # Save the User instance
         user = super().save(commit=False)
         user.set_password(self.cleaned_data["password"])
@@ -37,55 +53,63 @@ class SignUpForm(forms.ModelForm):
                 farm_name=self.cleaned_data.get('farm_name'),
                 contact_number=self.cleaned_data.get('contact_number')
             )
-        return user 
+        return user
+
 
 class FarmForm(forms.ModelForm):
+    """Form for creating and editing Farm instances."""
     # Region field (already exists)
     region = forms.ModelChoiceField(
         queryset=Region.objects.all(),
         empty_label=None,
         required=True
     )
-    # Remove manual definitions for has_exact_address and street_address
-    # They will now come from the model fields
 
     class Meta:
         model = Farm
         fields = [
-            'name', 
+            'name',
             'region',
             'has_exact_address',      # Added model field
-            'geoscape_address_id',  # Added model field
-            'formatted_address',    # Added model field
-            'location_description', # Existing field
-            'size_hectares', 
-            'stocking_rate', 
+            'geoscape_address_id',    # Added model field
+            'formatted_address',      # Added model field
+            'location_description',   # Existing field
+            'size_hectares',
+            'stocking_rate',
             'distribution_pattern'
         ]
         widgets = {
-            'location_description': forms.Textarea(attrs={'rows': 2, 'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'}),
+            'location_description': forms.Textarea(attrs={
+                'rows': 2,
+                'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'
+            }),
             # Use hidden inputs for API data
             'geoscape_address_id': forms.HiddenInput(),
             'formatted_address': forms.HiddenInput(),
             # Explicitly use CheckboxInput for clarity
-            'has_exact_address': forms.CheckboxInput(), 
+            'has_exact_address': forms.CheckboxInput(),
         }
         labels = {
             'stocking_rate': 'Stocking Rate (plants per hectare)',
-            'has_exact_address': 'Do you have an exact street address for this farm?' # Add label for the checkbox
+            'has_exact_address': 'Do you have an exact street address for this farm?'  # Add label for the checkbox
         }
         # Set fields as not required initially
         required = {
             'geoscape_address_id': False,
             'formatted_address': False,
             'has_exact_address': False,
-            'location_description': False, # Only required if no exact address
+            'location_description': False,  # Only required if no exact address
             'size_hectares': False,
             'stocking_rate': False,
         }
 
-    # Add custom validation if needed
     def clean(self):
+        """
+        Validate form data for address fields.
+        
+        Returns:
+            Cleaned data dictionary
+        """
         cleaned_data = super().clean()
         has_exact = cleaned_data.get('has_exact_address')
         geoscape_id = cleaned_data.get('geoscape_address_id')
@@ -95,25 +119,24 @@ class FarmForm(forms.ModelForm):
         if has_exact:
             # If checkbox is checked, require the hidden fields to have been populated by JS
             if not geoscape_id or not formatted_addr:
-                 # This error might be hard for users to see as fields are hidden.
-                 # Consider adding a non-field error or JS validation.
-                 raise ValidationError("An exact address was indicated, but address details were not selected. Please use the address search.")
+                # This error might be hard for users to see as fields are hidden.
+                # Consider adding a non-field error or JS validation.
+                raise ValidationError(
+                    "An exact address was indicated, but address details were not selected. "
+                    "Please use the address search."
+                )
             # Clear location description if exact address is given
-            cleaned_data['location_description'] = '' 
+            cleaned_data['location_description'] = ''
         else:
-            # If checkbox is unchecked, require location description (unless it's optional)
-            if not location_desc:
-                 # Make location description required only if exact address is NOT provided
-                 # self.add_error('location_description', "Please provide a general location description if you don\'t have an exact address.")
-                 # Decided to keep location_description optional for now based on template text
-                 pass
             # Clear exact address fields if general location is used
             cleaned_data['geoscape_address_id'] = None
             cleaned_data['formatted_address'] = ''
 
         return cleaned_data
 
+
 class SurveillanceRecordForm(forms.ModelForm):
+    """Form for creating and editing surveillance records."""
     plant_parts_checked = forms.ModelMultipleChoiceField(
         queryset=PlantPart.objects.all(),
         widget=forms.CheckboxSelectMultiple,
@@ -125,9 +148,14 @@ class SurveillanceRecordForm(forms.ModelForm):
         required=False
     )
 
-    # Accept farm in constructor
     def __init__(self, *args, **kwargs):
-        self.farm = kwargs.pop('farm', None) # Get farm from kwargs
+        """
+        Initialize form with a farm instance.
+        
+        Args:
+            farm: Farm instance to associate with record
+        """
+        self.farm = kwargs.pop('farm', None)  # Get farm from kwargs
         super().__init__(*args, **kwargs)
         if not self.farm:
             # This should ideally not happen if view is correct,
@@ -144,56 +172,54 @@ class SurveillanceRecordForm(forms.ModelForm):
             'notes'
         ]
         widgets = {
-            'date_performed': forms.DateTimeInput(attrs={'type': 'datetime-local', 'value': timezone.now().strftime('%Y-%m-%dT%H:%M')}),
+            'date_performed': forms.DateTimeInput(attrs={
+                'type': 'datetime-local',
+                'value': timezone.now().strftime('%Y-%m-%dT%H:%M')
+            }),
             'notes': forms.Textarea(attrs={'rows': 3}),
         }
 
     def clean_plants_surveyed(self):
-        """Validate that plants_surveyed is not more than total plants on farm."""
+        """
+        Validate the number of plants surveyed.
+        
+        Returns:
+            Validated plants_surveyed value
+        """
         plants_surveyed = self.cleaned_data.get('plants_surveyed')
         total_plants = self.farm.total_plants()
 
-        if plants_surveyed is None: # Handle case where field is empty
-            raise ValidationError("This field is required.") 
-        
-        if total_plants is None:
-             # If total plants can't be calculated, we can't validate this.
-             # Depending on requirements, could allow save or raise error.
-             # For now, let's allow it but maybe add a warning later.
-             pass 
-        elif plants_surveyed > total_plants:
+        if plants_surveyed is None:  # Handle case where field is empty
+            raise ValidationError("This field is required.")
+
+        if plants_surveyed < 0:
+            raise ValidationError("Number of plants surveyed cannot be negative.")
+
+        if total_plants is not None and plants_surveyed > total_plants:
             raise ValidationError(
                 f"Number of plants surveyed ({plants_surveyed}) cannot exceed "
                 f"the total plants calculated for this farm ({total_plants})."
             )
-        elif plants_surveyed < 0:
-             raise ValidationError("Number of plants surveyed cannot be negative.")
-             
-        return plants_surveyed 
+
+        return plants_surveyed
+
 
 class UserEditForm(forms.ModelForm):
+    """Form for editing user account details."""
     class Meta:
         model = User
-        fields = ['username', 'email'] # Allow editing username and email
+        fields = ['username', 'email']  # Allow editing username and email
+
 
 class GrowerProfileEditForm(forms.ModelForm):
+    """Form for editing grower profile details."""
     class Meta:
         model = Grower
-        fields = ['farm_name', 'contact_number'] # Fields from Grower model 
+        fields = ['farm_name', 'contact_number']  # Fields from Grower model
 
-SEASON_CHOICES = [
-    ('Wet', 'Wet Season (Approx. Nov-Apr)'),
-    ('Dry', 'Dry Season (Approx. May-Oct)'),
-    ('Flowering', 'Flowering Period (Within Dry Season)'),
-]
-
-CONFIDENCE_CHOICES = [
-    (90, '90%'),
-    (95, '95% - Standard'),
-    (99, '99% - High Confidence'),
-]
 
 class CalculatorForm(forms.Form):
+    """Form for surveillance effort calculator."""
     farm = forms.ModelChoiceField(
         queryset=Farm.objects.none(),
         label="Select Your Farm",
@@ -201,24 +227,30 @@ class CalculatorForm(forms.Form):
         required=False,  # Don't show required validation until form submission
     )
     confidence_level = forms.ChoiceField(
-        choices=CONFIDENCE_CHOICES,  # Keep the original choices without empty option
+        choices=CONFIDENCE_CHOICES,  # Use choices from models.py
         required=False,  # Don't show required validation until form submission
         label="Desired Confidence Level"
     )
     season = forms.ChoiceField(
-        choices=SEASON_CHOICES,  # Keep the original choices without empty option
+        choices=SEASON_CHOICES,  # Use choices from models.py
         required=False,  # Don't show required validation until form submission
         label="Select Current Season/Period"
     )
 
     def __init__(self, grower, *args, **kwargs):
+        """
+        Initialize form with a grower instance.
+        
+        Args:
+            grower: Grower instance to filter farms
+        """
         # Get the initial data, if any
         initial = kwargs.get('initial', {})
-        
+
         # If a farm is selected in initial data, we can set defaults
         if 'farm' in initial and initial['farm']:
             farm = initial['farm']
-            
+
             # Only set these defaults if explicitly coming from a link
             # Don't override any user selections from the form
             if kwargs.get('data') is None:
@@ -232,24 +264,29 @@ class CalculatorForm(forms.Form):
                         initial['season'] = farm.current_season()
                     except AttributeError:
                         pass  # No default
-                
+
                 # Update the kwargs with our modified initial data
                 kwargs['initial'] = initial
-        
+
         super().__init__(*args, **kwargs)
-        
+
         # Populate farm choices based on the logged-in grower
         self.fields['farm'].queryset = Farm.objects.filter(owner=grower)
-        
+
         # Additional setup for better user experience
         self.fields['farm'].widget.attrs.update({'class': 'form-select form-select-lg'})
         self.fields['confidence_level'].widget.attrs.update({'class': 'form-select'})
         self.fields['season'].widget.attrs.update({'class': 'form-select'})
-    
+
     def clean(self):
-        """Validate form only when actually submitted with data."""
-        cleaned_data = super().clean()
+        """
+        Validate form fields when submitted.
         
+        Returns:
+            Cleaned data dictionary
+        """
+        cleaned_data = super().clean()
+
         # Only validate when the form is actually submitted
         if self.is_bound and self.data:
             # Now enforce required fields
@@ -259,5 +296,5 @@ class CalculatorForm(forms.Form):
                 self.add_error('confidence_level', 'Please select a confidence level.')
             if not cleaned_data.get('season'):
                 self.add_error('season', 'Please select a season.')
-                
-        return cleaned_data 
+
+        return cleaned_data

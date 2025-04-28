@@ -2,10 +2,28 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from decimal import Decimal
-# Import GIS models if using GeoDjango
-# from django.contrib.gis.db import models as gis_models
 import uuid
 from datetime import timedelta
+
+# Constants for choices
+DISTRIBUTION_CHOICES = [
+    ('uniform', 'Uniform'),
+    ('clustered', 'Clustered'),
+    ('random', 'Random'),
+]
+
+SEASON_CHOICES = [
+    ('Wet', 'Wet Season'),
+    ('Dry', 'Dry Season'),
+    ('Flowering', 'Flowering Period'),
+]
+
+CONFIDENCE_CHOICES = [
+    (90, '90%'),
+    (95, '95%'),
+    (99, '99%'),
+]
+
 
 class Grower(models.Model):
     """
@@ -19,19 +37,47 @@ class Grower(models.Model):
         return f"{self.user.username}'s Profile ({self.farm_name})"
     
     def recent_surveillance_records(self, limit=5):
-        """Returns the most recent surveillance records across all farms."""
+        """
+        Returns the most recent surveillance records across all farms.
+        
+        Args:
+            limit: Maximum number of records to return
+            
+        Returns:
+            QuerySet of SurveillanceRecord instances
+        """
         return SurveillanceRecord.objects.filter(
             performed_by=self
         ).order_by('-date_performed')[:limit]
     
     def total_plants_managed(self):
-        """Returns the total number of plants across all farms."""
-        total = 0
-        for farm in self.farms.all():
-            plants = farm.total_plants()
-            if plants:
-                total += plants
-        return total if total > 0 else None
+        """
+        Returns the total number of plants across all farms.
+        
+        Returns:
+            Integer count of plants or None if no valid plant counts
+        """
+        # Use aggregate instead of iterating to improve performance
+        from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+        
+        farms_with_counts = self.farms.filter(
+            size_hectares__isnull=False, 
+            stocking_rate__isnull=False
+        )
+        
+        total_expr = ExpressionWrapper(
+            F('size_hectares') * F('stocking_rate'), 
+            output_field=DecimalField()
+        )
+        
+        result = farms_with_counts.aggregate(
+            total=Sum(total_expr)
+        )
+        
+        # Convert to int and handle None case
+        total = result['total']
+        return int(total) if total is not None else None
+
 
 class Region(models.Model):
     """
@@ -49,6 +95,7 @@ class Region(models.Model):
     def __str__(self):
         return self.name
 
+
 class PlantType(models.Model):
     """
     Represents a type of plant (e.g., Mango, Avocado).
@@ -59,6 +106,7 @@ class PlantType(models.Model):
     def __str__(self):
         return self.name
 
+
 class PlantPart(models.Model):
     """
     Represents a specific part of a plant that can be checked during surveillance.
@@ -68,6 +116,7 @@ class PlantPart(models.Model):
 
     def __str__(self):
         return self.name
+
 
 class Pest(models.Model):
     """
@@ -83,7 +132,16 @@ class Pest(models.Model):
     
     @classmethod
     def get_priority_pests_for_season(cls, season, plant_type=None):
-        """Returns priority pests based on season and plant type."""
+        """
+        Returns priority pests based on season and plant type.
+        
+        Args:
+            season: String representing the current season
+            plant_type: Optional PlantType instance
+            
+        Returns:
+            QuerySet of Pest instances
+        """
         # This method would normally have more advanced logic,
         # but for now we'll return a simple filter
         queryset = cls.objects.all()
@@ -91,38 +149,11 @@ class Pest(models.Model):
             queryset = queryset.filter(affects_plant_types=plant_type)
         return queryset[:3]  # Return top 3 as an example
 
-class SurveillanceRecord(models.Model):
-    """
-    Represents a record of a surveillance activity performed on a farm.
-    """
-    farm = models.ForeignKey('Farm', on_delete=models.CASCADE, related_name='surveillance_records')
-    performed_by = models.ForeignKey(Grower, on_delete=models.CASCADE, related_name='surveillance_records')
-    date_performed = models.DateTimeField(default=timezone.now)
-    plants_surveyed = models.IntegerField()
-    plant_parts_checked = models.ManyToManyField(PlantPart, related_name='surveillance_records', blank=True)
-    pests_found = models.ManyToManyField(Pest, related_name='surveillance_records', blank=True)
-    notes = models.TextField(blank=True, null=True)
-
-    def __str__(self):
-        return f"Survey on {self.farm.name} - {self.date_performed.strftime('%Y-%m-%d %H:%M')}"
-    
-    def coverage_percentage(self):
-        """Calculate what percentage of the farm was surveyed."""
-        total_plants = self.farm.total_plants()
-        if total_plants and self.plants_surveyed:
-            return round((self.plants_surveyed / total_plants) * 100, 1)
-        return None
 
 class Farm(models.Model):
     """
     Represents a farm managed by a grower.
     """
-    DISTRIBUTION_CHOICES = [
-        ('uniform', 'Uniform'),
-        ('clustered', 'Clustered'),
-        ('random', 'Random'),
-    ]
-
     owner = models.ForeignKey(Grower, on_delete=models.CASCADE, related_name='farms')
     name = models.CharField(max_length=100)
     region = models.ForeignKey(Region, on_delete=models.SET_NULL, null=True, blank=True, related_name='farms')
@@ -181,53 +212,89 @@ class Farm(models.Model):
         help_text="Cadastral boundary polygon data (e.g., GeoJSON) from Geoscape API"
     )
 
+    def __str__(self):
+        return f"{self.name} (Owner: {self.owner.user.username})"
+
     def total_plants(self):
-        """Calculate the total number of plants on the farm."""
+        """
+        Calculate the total number of plants on the farm.
+        
+        Returns:
+            Integer count of plants or None if size or stocking rate not set
+        """
         if self.size_hectares and self.stocking_rate:
             # Convert from Decimal to int for a clean integer result
             return int(self.size_hectares * Decimal(str(self.stocking_rate)))
         return None
     
     def current_season(self):
-        """Determine the current season based on month."""
+        """
+        Determine the current season based on month.
+        
+        Returns:
+            String representing the current season ('Wet', 'Dry', or 'Flowering')
+        """
         current_month = timezone.now().month
         if 5 <= current_month <= 10:  # May-Oct
             return 'Dry'
         return 'Wet'  # Nov-Apr
     
     def last_surveillance_date(self):
-        """Return the date of the most recent surveillance record."""
+        """
+        Return the date of the most recent surveillance record.
+        
+        Returns:
+            Datetime of last surveillance or None if no records
+        """
         last_record = self.surveillance_records.order_by('-date_performed').first()
         return last_record.date_performed if last_record else None
     
     def next_due_date(self):
-        """Calculate the next due date for surveillance."""
+        """
+        Calculate the next due date for surveillance.
+        
+        Returns:
+            Date object for next recommended surveillance
+        """
         # Default to 7 days after last surveillance, or today if none
         last_date = self.last_surveillance_date()
         if last_date:
             return last_date + timezone.timedelta(days=7)
         return timezone.now().date()
 
+
+class SurveillanceRecord(models.Model):
+    """
+    Represents a record of a surveillance activity performed on a farm.
+    """
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='surveillance_records')
+    performed_by = models.ForeignKey(Grower, on_delete=models.CASCADE, related_name='surveillance_records')
+    date_performed = models.DateTimeField(default=timezone.now)
+    plants_surveyed = models.IntegerField()
+    plant_parts_checked = models.ManyToManyField(PlantPart, related_name='surveillance_records', blank=True)
+    pests_found = models.ManyToManyField(Pest, related_name='surveillance_records', blank=True)
+    notes = models.TextField(blank=True, null=True)
+
     def __str__(self):
-        return f"{self.name} (Owner: {self.owner.user.username})"
+        return f"Survey on {self.farm.name} - {self.date_performed.strftime('%Y-%m-%d %H:%M')}"
+    
+    def coverage_percentage(self):
+        """
+        Calculate what percentage of the farm was surveyed.
         
-        
+        Returns:
+            Float percentage or None if cannot calculate
+        """
+        total_plants = self.farm.total_plants()
+        if total_plants and self.plants_surveyed:
+            return round((self.plants_surveyed / total_plants) * 100, 1)
+        return None
+
+
 class SurveillanceCalculation(models.Model):
     """
     Stores historical records of surveillance calculations for farms.
     """
-    SEASON_CHOICES = [
-        ('Wet', 'Wet Season'),
-        ('Dry', 'Dry Season'),
-        ('Flowering', 'Flowering Period'),
-    ]
-    
-    CONFIDENCE_CHOICES = [
-        (90, '90%'),
-        (95, '95%'),
-        (99, '99%'),
-    ]
-    
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='calculations')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='calculations')
     date_created = models.DateTimeField(default=timezone.now)
@@ -262,6 +329,7 @@ class SurveillanceCalculation(models.Model):
             SurveillanceCalculation.objects.filter(farm=self.farm, is_current=True).update(is_current=False)
         super().save(*args, **kwargs)
 
+
 class BoundaryMappingToken(models.Model):
     """
     Stores a temporary, unique token for mapping a farm boundary.
@@ -278,7 +346,12 @@ class BoundaryMappingToken(models.Model):
         super().save(*args, **kwargs)
 
     def is_valid(self):
-        """Check if the token is still valid."""
+        """
+        Check if the token is still valid.
+        
+        Returns:
+            Boolean indicating if the token is still valid
+        """
         return self.expires_at > timezone.now()
 
     def __str__(self):
