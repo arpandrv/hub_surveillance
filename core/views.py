@@ -96,21 +96,62 @@ def create_farm_view(request):
 @login_required
 def farm_detail_view(request, farm_id):
     """Display detailed information about a specific farm, using dynamic recommendations."""
+    print(f"--- Entering farm_detail_view for farm_id: {farm_id} ---")
     farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
     
     # --- Determine Current Stage and Prevalence --- 
     current_stage, current_prevalence_p = determine_stage_and_p()
     print(f"Farm {farm.id}: Current Stage='{current_stage}', Prevalence={current_prevalence_p}") # Debug
     
-    # --- Calculate Sample Size for Display (using default confidence) ---
-    # Note: User can customize confidence via calculator page
-    display_confidence = DEFAULT_CONFIDENCE # Use default for this page view
-    calculation_results = calculate_surveillance_effort(
-        farm=farm,
-        confidence_level_percent=display_confidence,
-        prevalence_p=current_prevalence_p
-    )
-    print(f"Farm {farm.id}: Display Calculation Results={calculation_results}") # Debug
+    # --- Get or Calculate Sample Size for Display ---
+    calculation_results = None
+    print(f"Farm {farm.id}: Attempting to fetch/calculate results...") # ADDED
+    
+    # Try to get the most recent saved calculation for this farm
+    try:
+        print(f"Farm {farm.id}: Inside TRY block, searching for SurveillanceCalculation...") # ADDED
+        latest_calc = SurveillanceCalculation.objects.filter(farm=farm, is_current=True).latest('date_created')
+        print(f"Farm {farm.id}: Found latest_calc: ID={latest_calc.id}, Confidence={latest_calc.confidence_level}, Plants={latest_calc.required_plants}") # ADDED
+        
+        # Map model fields to the dictionary structure expected by the template
+        print(f"Farm {farm.id}: Mapping latest_calc to dictionary...") # ADDED
+        calculation_results = {
+            'N': latest_calc.population_size,
+            'confidence_level_percent': latest_calc.confidence_level,
+            'prevalence_p': float(latest_calc.prevalence_percent / Decimal(100)) if latest_calc.prevalence_percent is not None else None, # ADDED safety check
+            'margin_of_error': float(latest_calc.margin_of_error / Decimal(100)) if latest_calc.margin_of_error is not None else None, # ADDED safety check
+            'required_plants_to_survey': latest_calc.required_plants,
+            'percentage_of_total': float(latest_calc.percentage_of_total) if latest_calc.percentage_of_total is not None else None, # ADDED safety check
+            'survey_frequency': latest_calc.survey_frequency,
+            'error': None
+        }
+        print(f"Farm {farm.id}: Using saved calculation (ID: {latest_calc.id})")
+    except SurveillanceCalculation.DoesNotExist:
+        print(f"Farm {farm.id}: No saved calculation found (DoesNotExist). Calculating with default confidence.") # MODIFIED
+        # Fallback: Calculate using default confidence if no saved record exists
+        display_confidence = DEFAULT_CONFIDENCE 
+        calculation_results = calculate_surveillance_effort(
+            farm=farm,
+            confidence_level_percent=display_confidence,
+            prevalence_p=current_prevalence_p
+        )
+        # ADDED check if fallback calculation resulted in error
+        if calculation_results.get('error'):
+             print(f"Farm {farm.id}: Fallback calculation resulted in error: {calculation_results['error']}")
+        else:
+             print(f"Farm {farm.id}: Fallback calculation successful.")
+            
+    except Exception as e:
+        # Handle other potential errors during fetch/mapping
+        print(f"Farm {farm.id}: Error fetching or mapping saved calculation: {e}") # MODIFIED
+        calculation_results = {'error': f'Error retrieving saved calculation: {e}'} 
+
+    # Ensure calculation_results is not None if calculation failed
+    if calculation_results is None:
+        print(f"Farm {farm.id}: calculation_results was None after try/except block. Setting error.") # ADDED
+        calculation_results = {'error': 'Could not determine surveillance recommendations.'}
+        
+    print(f"Farm {farm.id}: Final Calculation Results for display={calculation_results}") # Debug
 
     # --- Get Active Threats and Parts for the Current Stage ---
     threats_and_parts = get_active_threats_and_parts(current_stage)

@@ -40,7 +40,13 @@ def calculate_surveillance_effort(farm, confidence_level_percent, prevalence_p):
         return {'error': 'Total number of plants (N) must be calculated and positive.', 
                 'required_plants_to_survey': None, 'percentage_of_total': None, 'survey_frequency': None}
 
-    z = Decimal(str(Z_SCORES.get(confidence_level_percent, Z_SCORES[DEFAULT_CONFIDENCE])))
+    # Convert string confidence level from form to int for lookup
+    try:
+        confidence_level_int = int(confidence_level_percent)
+    except (ValueError, TypeError):
+        confidence_level_int = DEFAULT_CONFIDENCE # Fallback if conversion fails
+
+    z = Decimal(str(Z_SCORES.get(confidence_level_int, Z_SCORES[DEFAULT_CONFIDENCE])))
     p = Decimal(str(prevalence_p)) # Convert float to Decimal
     d = MARGIN_OF_ERROR
 
