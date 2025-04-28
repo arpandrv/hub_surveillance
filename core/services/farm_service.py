@@ -127,12 +127,6 @@ def update_farm(farm_id: int, farm_data: Dict[str, Any], user: User) -> Tuple[Op
         # Save the farm
         farm.save()
         
-        # If the address ID has changed, try to fetch new boundary
-        if 'geoscape_address_id' in farm_data and farm.geoscape_address_id:
-            success, message = fetch_and_save_cadastral_boundary(farm)
-            if not success:
-                logger.warning(f"Could not fetch boundary for farm {farm.id}: {message}")
-        
         return farm, None
     
     except Exception as e:

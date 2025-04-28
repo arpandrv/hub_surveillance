@@ -5,19 +5,40 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Count, Q
-from django.conf import settings
-import requests
-import json # Import json module
-from django.urls import reverse # Import reverse
+from django.urls import reverse
+import json
 
-from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm, CalculatorForm
-from .models import Farm, PlantType, PlantPart, Pest, SurveillanceRecord, Grower, Region, SurveillanceCalculation, BoundaryMappingToken # Add BoundaryMappingToken
-from .calculations import (
-    calculate_surveillance_effort, 
-    get_recommended_plant_parts,
-    get_surveillance_frequency
+from .forms import (
+    SignUpForm, FarmForm, SurveillanceRecordForm, 
+    UserEditForm, GrowerProfileEditForm, CalculatorForm
 )
-from .geoscape_utils import fetch_cadastral_boundary
+from .models import (
+    Farm, PlantType, PlantPart, Pest, SurveillanceRecord, 
+    Grower, Region, SurveillanceCalculation, BoundaryMappingToken
+)
+
+# Import services
+from .services.user_service import create_user_with_profile
+from .services.farm_service import (
+    get_user_farms, get_farm_details, create_farm, 
+    update_farm, delete_farm, get_farm_surveillance_records
+)
+from .services.calculation_service import (
+    calculate_surveillance_effort, get_recommended_plant_parts,
+    get_surveillance_frequency, save_calculation_to_database
+)
+from .services.surveillance_service import (
+    create_surveillance_record, get_surveillance_recommendations, 
+    get_surveillance_stats
+)
+from .services.geoscape_service import (
+    fetch_cadastral_boundary, search_addresses
+)
+from .services.boundary_service import (
+    create_mapping_token, get_mapping_url, validate_mapping_token,
+    invalidate_token, save_boundary_to_farm
+)
+
 
 def signup_view(request):
     """Handle user registration and Grower profile creation."""
@@ -32,15 +53,13 @@ def signup_view(request):
         form = SignUpForm()
     return render(request, 'core/signup.html', {'form': form})
 
+
 @login_required
 def home_view(request):
     """Display the user's farms (My Farms page)."""
-    grower = request.user.grower_profile
-    farms = Farm.objects.filter(owner=grower)
-    context = {
-        'farms': farms
-    }
-    return render(request, 'core/home.html', context)
+    farms = get_user_farms(request.user)
+    return render(request, 'core/home.html', {'farms': farms})
+
 
 @login_required
 def create_farm_view(request):
@@ -48,49 +67,35 @@ def create_farm_view(request):
     if request.method == 'POST':
         form = FarmForm(request.POST)
         if form.is_valid():
-            farm = form.save(commit=False)
-            farm.owner = request.user.grower_profile
+            # Extract data from the form
+            farm_data = {field: form.cleaned_data[field] for field in form.Meta.fields}
             
-            # Set default plant type to Mango
-            try:
-                mango_type = PlantType.objects.get(name='Mango')
-                farm.plant_type = mango_type
-            except PlantType.DoesNotExist:
-                messages.error(request, "Default 'Mango' PlantType not found. Please add it via admin.")
+            # Use service to create farm
+            farm, error = create_farm(farm_data, request.user)
+            
+            if error:
+                messages.error(request, error)
                 return render(request, 'core/create_farm.html', {'form': form})
             
-            # Save the main farm data first
-            farm.save()
             messages.success(request, f"Farm '{farm.name}' was created successfully!")
-
-            # --- Fetch and save boundary ---
-            if farm.geoscape_address_id:
-                print(f"Attempting to fetch boundary for new farm {farm.id} with address ID {farm.geoscape_address_id}") # Debug
-                boundary_json = fetch_cadastral_boundary(farm.geoscape_address_id)
-                if boundary_json:
-                    farm.boundary = boundary_json # Assign the returned JSON dictionary
-                    farm.save(update_fields=['boundary']) # Save only the boundary field
-                    print(f"Successfully fetched and saved boundary for farm {farm.id}") # Debug
-                    messages.info(request, f"Cadastral boundary retrieved and saved for '{farm.name}'.")
-                else:
-                    print(f"Failed to fetch boundary for farm {farm.id}") # Debug
-                    messages.warning(request, f"Could not automatically retrieve cadastral boundary for '{farm.name}'.")
-            # --------------------------------
-
             return redirect('core:farm_detail', farm_id=farm.id)
     else:
         form = FarmForm()
     
     return render(request, 'core/create_farm.html', {'form': form})
 
+
 @login_required
 def farm_detail_view(request, farm_id):
     """Display detailed information about a specific farm."""
-    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    # Get farm with permission check
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        return redirect('core:home')
     
-    # Check for a saved calculation in the database
+    # Get saved calculation or calculate new
     try:
-        # Get the most recent current calculation
         saved_calculation = SurveillanceCalculation.objects.filter(
             farm=farm,
             is_current=True
@@ -114,9 +119,6 @@ def farm_detail_view(request, farm_id):
                 'calculation_date': saved_calculation.date_created.date(),
                 'error': None
             }
-            
-            # For debug
-            print(f"Using saved calculation from {saved_calculation.date_created}")
         else:
             # No saved calculation found, calculate with defaults
             default_confidence = 95
@@ -128,7 +130,6 @@ def farm_detail_view(request, farm_id):
             )
     except Exception as e:
         # If anything goes wrong, fall back to a fresh calculation
-        print(f"Error retrieving saved calculation: {e}")
         default_confidence = 95
         default_season = farm.current_season()
         calculation_results = calculate_surveillance_effort(
@@ -136,133 +137,112 @@ def farm_detail_view(request, farm_id):
             confidence_level_percent=default_confidence,
             season=default_season
         )
-    else:
-        # No saved calculation, calculate with defaults
-        default_confidence = 95
-        default_season = farm.current_season()
-        
-        # Calculate surveillance effort
-        calculation_results = calculate_surveillance_effort(
-            farm=farm,
-            confidence_level_percent=default_confidence,
-            season=default_season
-        )
     
-    # Get priority pests for this season and plant type
-    priority_pests = Pest.get_priority_pests_for_season(
-        season=default_season,
-        plant_type=farm.plant_type
-    )
-    
-    # Get recommended parts to check (based on the season used in calculation)
-    calculation_season = calculation_results.get('season', default_season)
-    recommended_parts = get_recommended_plant_parts(
-        season=calculation_season,
-        plant_type=farm.plant_type
-    )
-    
-    # Get recommended frequency and next due date
-    surveillance_frequency = get_surveillance_frequency(calculation_season, farm)
-    last_surveillance_date = farm.last_surveillance_date()
-    next_due_date = farm.next_due_date()
+    # Get recommendations from service
+    surveillance_recommendations = get_surveillance_recommendations(farm)
     
     # Get surveillance records
-    surveillance_records = farm.surveillance_records.order_by('-date_performed')
+    records, _ = get_farm_surveillance_records(farm_id, request.user, limit=5)
     
-    # Print debug info about calculation results
-    print(f"Calculation Results for farm {farm.id}:")
-    print(f"- Required plants: {calculation_results.get('required_plants_to_survey')}")
-    print(f"- Using: {calculation_results.get('confidence_level_percent')}% confidence")
-    print(f"- Season: {calculation_results.get('season')}")
-    print(f"- Date: {calculation_results.get('calculation_date')}")
-    
+    # Build context from all gathered data
     context = {
         'farm': farm,
         'calculation_results': calculation_results,
-        'surveillance_records': surveillance_records,
-        'default_season_used': calculation_season,
+        'surveillance_records': records,
+        'default_season_used': calculation_results.get('season', default_season),
         'default_confidence_used': calculation_results.get('confidence_level_percent', default_confidence),
-        'priority_pests': priority_pests,
-        'recommended_parts': recommended_parts,
-        'surveillance_frequency': surveillance_frequency,
-        'last_surveillance_date': last_surveillance_date,
-        'next_due_date': next_due_date,
-        'farm_boundary_json': farm.boundary # Pass boundary data directly (should be JSON serializable)
+        'priority_pests': surveillance_recommendations['priority_pests'],
+        'recommended_parts': surveillance_recommendations['recommended_parts'],
+        'surveillance_frequency': surveillance_recommendations['next_due_date'],
+        'last_surveillance_date': surveillance_recommendations['last_surveillance_date'],
+        'next_due_date': surveillance_recommendations['next_due_date'],
+        'farm_boundary_json': farm.boundary  # Pass boundary data directly (should be JSON serializable)
     }
     
     # Add debug message
-    messages.info(request, f"Using calculation with {calculation_results.get('required_plants_to_survey')} plants to survey.")
+    if not calculation_results.get('error'):
+        messages.info(request, f"Using calculation with {calculation_results.get('required_plants_to_survey')} plants to survey.")
     
     return render(request, 'core/farm_detail.html', context)
+
 
 @login_required
 def edit_farm_view(request, farm_id):
     """Handle farm editing."""
-    farm_instance = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
-    original_address_id = farm_instance.geoscape_address_id # Store before binding form
+    # Get farm with permission check
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        return redirect('core:home')
+    
+    original_address_id = farm.geoscape_address_id  # Store before binding form
     
     if request.method == 'POST':
-        form = FarmForm(request.POST, instance=farm_instance)
+        form = FarmForm(request.POST, instance=farm)
         if form.is_valid():
-            updated_farm = form.save() # Save all form changes first
+            # Extract data from the form
+            farm_data = {field: form.cleaned_data[field] for field in form.Meta.fields}
+            
+            # Use service to update farm
+            updated_farm, error = update_farm(farm_id, farm_data, request.user)
+            if error:
+                messages.error(request, error)
+                return render(request, 'core/create_farm.html', {'form': form, 'farm': farm, 'is_edit': True})
+            
             messages.success(request, f"Farm '{updated_farm.name}' was updated successfully!")
-
-            # --- Fetch/Update boundary if address ID changed or boundary missing ---
+            
+            # Handle boundary update if address changed
             address_id_changed = (updated_farm.geoscape_address_id != original_address_id)
-            boundary_is_missing = not updated_farm.boundary # Check if boundary field is None/empty
+            boundary_is_missing = not updated_farm.boundary
             new_address_id_set = bool(updated_farm.geoscape_address_id)
-
-            # Conditions to attempt fetch:
-            # 1. Address ID changed to a non-empty value.
-            # 2. Address ID is set and the boundary field is currently empty.
-            should_fetch_boundary = new_address_id_set and (address_id_changed or boundary_is_missing)
-
-            if should_fetch_boundary:
-                print(f"Attempting to fetch/update boundary for farm {updated_farm.id} with address ID {updated_farm.geoscape_address_id}") # Debug
-                boundary_json = fetch_cadastral_boundary(updated_farm.geoscape_address_id)
-                
-                if boundary_json:
-                    updated_farm.boundary = boundary_json
-                    updated_farm.save(update_fields=['boundary']) # Save only the boundary field
-                    print(f"Successfully fetched/updated and saved boundary for farm {updated_farm.id}") # Debug
+            
+            if new_address_id_set and (address_id_changed or boundary_is_missing):
+                success, message = fetch_and_save_cadastral_boundary(updated_farm)
+                if success:
                     messages.info(request, f"Cadastral boundary retrieved/updated and saved for '{updated_farm.name}'.")
-                else:
-                    # Fetch failed. If address ID changed, clear the old boundary.
-                    print(f"Failed to fetch/update boundary for farm {updated_farm.id}") # Debug
-                    if address_id_changed and updated_farm.boundary is not None:
-                         updated_farm.boundary = None # Clear the potentially outdated boundary
-                         updated_farm.save(update_fields=['boundary'])
-                         messages.warning(request, f"Address changed, but could not retrieve new boundary for '{updated_farm.name}'. Old boundary cleared.")
-                    elif boundary_is_missing:
-                         # Only show warning if we were trying to fill a missing boundary
-                         messages.warning(request, f"Could not automatically retrieve cadastral boundary for '{updated_farm.name}'.")
-            # --------------------------------------------------------------------
-
+                elif address_id_changed and updated_farm.boundary is not None:
+                    # Clear potentially outdated boundary
+                    updated_farm.boundary = None
+                    updated_farm.save(update_fields=['boundary'])
+                    messages.warning(request, f"Address changed, but could not retrieve new boundary for '{updated_farm.name}'. Old boundary cleared.")
+                elif boundary_is_missing:
+                    messages.warning(request, f"Could not automatically retrieve cadastral boundary for '{updated_farm.name}'.")
+            
             return redirect('core:farm_detail', farm_id=updated_farm.id)
     else:
-        form = FarmForm(instance=farm_instance)
+        form = FarmForm(instance=farm)
     
     context = {
         'form': form,
-        'farm': farm_instance,
+        'farm': farm,
         'is_edit': True  # Flag to indicate this is an edit operation
     }
     
     return render(request, 'core/create_farm.html', context)
 
+
 @login_required
 def delete_farm_view(request, farm_id):
     """Handle farm deletion."""
-    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    # Get farm with permission check
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        return redirect('core:home')
     
     if request.method == 'POST':
         farm_name = farm.name
-        farm.delete()
-        messages.success(request, f"Farm '{farm_name}' was deleted successfully.")
-        return redirect('core:myfarms')
+        success, error = delete_farm(farm_id, request.user)
+        
+        if success:
+            messages.success(request, f"Farm '{farm_name}' was deleted successfully.")
+            return redirect('core:myfarms')
+        else:
+            messages.error(request, error)
     
     context = {'farm': farm}
     return render(request, 'core/delete_farm_confirm.html', context)
+
 
 @login_required
 def calculator_view(request):
@@ -285,7 +265,7 @@ def calculator_view(request):
             confidence = form.cleaned_data['confidence_level']
             season = form.cleaned_data['season']
             
-            # Calculate surveillance effort
+            # Calculate surveillance effort using service
             calculation_results = calculate_surveillance_effort(
                 farm=selected_farm_instance,
                 confidence_level_percent=confidence,
@@ -294,33 +274,18 @@ def calculator_view(request):
             
             # Save calculation to database for historical record
             if not calculation_results.get('error') and selected_farm_instance:
-                # First, mark all previous calculations for this farm as not current
-                SurveillanceCalculation.objects.filter(
-                    farm=selected_farm_instance, 
-                    is_current=True
-                ).update(is_current=False)
-                
-                # Create a new calculation record
-                surveillance_calc = SurveillanceCalculation(
-                    farm=selected_farm_instance,
-                    created_by=request.user,
-                    season=season,
-                    confidence_level=confidence,
-                    population_size=calculation_results['N'],
-                    prevalence_percent=calculation_results['p_percent'],
-                    margin_of_error=calculation_results['d'] * 100,  # Convert from decimal to percentage
-                    required_plants=calculation_results['required_plants_to_survey'],
-                    percentage_of_total=calculation_results.get('percentage_of_total', 0),
-                    survey_frequency=calculation_results.get('survey_frequency'),
-                    is_current=True  # This is the current calculation
+                calc = save_calculation_to_database(
+                    calculation_results, 
+                    selected_farm_instance,
+                    request.user
                 )
-                surveillance_calc.save()
                 
-                # Add success message
-                messages.success(
-                    request, 
-                    f"Surveillance calculation for {selected_farm_instance.name} saved: {calculation_results['required_plants_to_survey']} plants."
-                )
+                if calc:
+                    messages.success(
+                        request, 
+                        f"Surveillance calculation for {selected_farm_instance.name} saved: "
+                        f"{calculation_results['required_plants_to_survey']} plants."
+                    )
         else:
             # If form is invalid after submission, show errors
             for field, errors in form.errors.items():
@@ -356,19 +321,34 @@ def calculator_view(request):
     
     return render(request, 'core/calculator.html', context)
 
+
 @login_required
 def record_surveillance_view(request, farm_id):
     """Record a new surveillance activity for a farm."""
-    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    # Get farm with permission check
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        return redirect('core:home')
     
     if request.method == 'POST':
         form = SurveillanceRecordForm(request.POST, farm=farm)
         if form.is_valid():
-            record = form.save(commit=False)
-            record.farm = farm
-            record.performed_by = request.user.grower_profile
-            record.save()
-            form.save_m2m()
+            # Extract data from the form
+            data = {
+                'date_performed': form.cleaned_data['date_performed'],
+                'plants_surveyed': form.cleaned_data['plants_surveyed'],
+                'notes': form.cleaned_data['notes'],
+                'plant_parts_checked': form.cleaned_data['plant_parts_checked'],
+                'pests_found': form.cleaned_data['pests_found']
+            }
+            
+            # Use service to create record
+            record, error = create_surveillance_record(farm, request.user, data)
+            
+            if error:
+                messages.error(request, error)
+                return render(request, 'core/record_surveillance.html', {'form': form, 'farm': farm})
             
             # Check if pests were found for appropriate messaging
             if record.pests_found.exists():
@@ -381,7 +361,7 @@ def record_surveillance_view(request, farm_id):
                 
             return redirect('core:farm_detail', farm_id=farm.id)
     else:
-        # Check if we have a saved calculation in the database
+        # Check if we have a saved calculation to use for initial plants value
         try:
             saved_calculation = SurveillanceCalculation.objects.filter(
                 farm=farm,
@@ -390,9 +370,7 @@ def record_surveillance_view(request, farm_id):
             
             initial_data = {}
             if saved_calculation:
-                # Use the saved calculation data
                 initial_data['plants_surveyed'] = saved_calculation.required_plants
-                print(f"Using saved calculation: {initial_data['plants_surveyed']} plants")
             else:
                 # No saved calculation found, use default
                 default_season = farm.current_season()
@@ -400,29 +378,24 @@ def record_surveillance_view(request, farm_id):
                 
                 if not calculation.get('error'):
                     initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
-                    print(f"Using default calculation: {initial_data['plants_surveyed']} plants")
+                    
         except Exception as e:
-            # If anything goes wrong, fall back to a default calculation
-            print(f"Error retrieving saved calculation: {e}")
-            default_season = farm.current_season()
-            calculation = calculate_surveillance_effort(farm, 95, default_season)
-            
+            # If anything goes wrong, initialize without plants_surveyed
             initial_data = {}
-            if not calculation.get('error'):
-                initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
             
         form = SurveillanceRecordForm(farm=farm, initial=initial_data)
     
     # Get recommended plant parts to check for this season
-    recommended_parts = get_recommended_plant_parts(farm.current_season(), farm.plant_type)
+    recommendations = get_surveillance_recommendations(farm)
     
     context = {
         'form': form,
         'farm': farm,
-        'recommended_parts': recommended_parts
+        'recommended_parts': recommendations['recommended_parts']
     }
     
     return render(request, 'core/record_surveillance.html', context)
+
 
 @login_required
 def profile_view(request):
@@ -450,6 +423,7 @@ def profile_view(request):
     
     return render(request, 'core/profile.html', context)
 
+
 @login_required
 def record_list_view(request):
     """Display all surveillance records for the user."""
@@ -469,10 +443,12 @@ def record_list_view(request):
     
     return render(request, 'core/record_list.html', context)
 
+
 @login_required
 def dashboard_view(request):
     """Display the user dashboard with summary information."""
     grower = request.user.grower_profile
+    farms = get_user_farms(request.user)
     
     # Get counts and summary information
     surveillance_count = grower.surveillance_records.count()
@@ -488,7 +464,7 @@ def dashboard_view(request):
     
     # Get farms that haven't been checked in the last 7 days
     due_farms = []
-    for farm in grower.farms.all():
+    for farm in farms:
         last_date = farm.last_surveillance_date()
         if not last_date or last_date.date() < week_ago:
             due_farms.append(farm)
@@ -496,7 +472,7 @@ def dashboard_view(request):
     due_farms_count = len(due_farms)
     
     # Get current season information
-    sample_farm = grower.farms.first()
+    sample_farm = farms.first()
     current_season = sample_farm.current_season() if sample_farm else 'Wet'
     
     season_labels = {
@@ -519,8 +495,10 @@ def dashboard_view(request):
     
     return render(request, 'core/dashboard.html', context)
 
+
 @login_required
 def address_suggestion_view(request):
+    """Handle address suggestion API requests."""
     # Check if debug mode is requested
     if 'debug' in request.GET:
         debug_html = """
@@ -594,90 +572,56 @@ def address_suggestion_view(request):
     
     # Regular API logic
     query = request.GET.get('query', '')
-    region_id = request.GET.get('region_id', None) # Expect region_id from frontend
+    region_id = request.GET.get('region_id', None)
     suggestions = []
     error_message = None
     state_territory_used = None
 
-    print(f"Address suggestion API called with query: {query}, region_id: {region_id}")
-    
     if not region_id:
         error_message = "Region must be selected first."
     elif query and len(query) >= 3:
-        api_key = getattr(settings, 'GEOSCAPE_API_KEY', None)
-        print(f"API key found: {'Yes' if api_key else 'No'}")
-        
-        if not api_key:
-            error_message = "API key not configured."
-        else:
-            try:
-                # Look up the region to get the state abbreviation
-                selected_region = Region.objects.get(id=region_id)
-                state_territory_used = selected_region.state_abbreviation
-                print(f"Region {selected_region.name} has state_abbreviation: {state_territory_used}")
-                
-                if not state_territory_used:
-                     error_message = f"State/Territory not configured for region: {selected_region.name}."
-                else:
-                    geoscape_url = "https://api.psma.com.au/v1/predictive/address"
-                    headers = {
-                        "Accept": "application/json",
-                        "Authorization": api_key  # Using API key directly without Bearer prefix
-                    }
-                    params = {
-                        "query": query,
-                        "stateTerritory": state_territory_used # Use state from selected region
-                    }
-                    # Debug info
-                    print(f"Using API Key starting with: {api_key[:5]}... (hidden)")
-                    print(f"Request URL: {geoscape_url}")
-                    print(f"Headers: {headers}")
-                    print(f"Params: {params}")
-                    
-                    # Try the request
-                    print("Making API request...")
-                    response = requests.get(geoscape_url, headers=headers, params=params, timeout=10)
-                    print(f"API Response status: {response.status_code}")
-                    
-                    # Add more error details if needed
-                    if response.status_code != 200:
-                        print(f"Error response body: {response.text}")
-                        
-                    response.raise_for_status()
-                    data = response.json()
-                    print(f"API Response structure: {list(data.keys())}")
-                    suggestions = data.get('suggest', [])
-                    print(f"Found {len(suggestions)} suggestions")
+        try:
+            # Look up the region to get the state abbreviation
+            selected_region = Region.objects.get(id=region_id)
+            state_territory_used = selected_region.state_abbreviation
+            
+            if not state_territory_used:
+                error_message = f"State/Territory not configured for region: {selected_region.name}."
+            else:
+                # Use service to search addresses
+                suggestions = search_addresses(query, state_territory_used)
+                if not suggestions:
+                    error_message = "No address suggestions found. Try a different search term."
 
-            except Region.DoesNotExist:
-                error_message = "Invalid region selected."
-            except requests.exceptions.RequestException as e:
-                print(f"Error calling Geoscape API: {e}") 
-                error_message = "Could not retrieve address suggestions."
-            except Exception as e:
-                print(f"Unexpected error processing Geoscape response: {e}")
-                error_message = "An error occurred while processing suggestions."
+        except Region.DoesNotExist:
+            error_message = "Invalid region selected."
+        except Exception as e:
+            error_message = "An error occurred while processing the address search."
 
     # Prepare JSON response
     response_data = {'suggestions': suggestions}
     if error_message:
         response_data['error'] = error_message
     if state_territory_used:
-        response_data['state_territory_used'] = state_territory_used # Optionally return state used
+        response_data['state_territory_used'] = state_territory_used
         
     return JsonResponse(response_data)
+
 
 @login_required
 def generate_mapping_link_view(request, farm_id):
     """Generates a unique link and displays it with a QR code for mobile mapping."""
-    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    # Get farm with permission check
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        return redirect('core:home')
 
-    # Create a new token (consider invalidating old ones? For now, just create a new one)
-    token_instance = BoundaryMappingToken.objects.create(farm=farm)
-
-    # Construct the full URL for the mapping page
-    mapping_path = reverse('core:map_boundary_via_token', kwargs={'token': str(token_instance.token)})
-    mapping_url = request.build_absolute_uri(mapping_path)
+    # Create token
+    token_instance = create_mapping_token(farm)
+    
+    # Generate URL
+    mapping_url = get_mapping_url(request, token_instance)
 
     context = {
         'farm': farm,
@@ -686,93 +630,62 @@ def generate_mapping_link_view(request, farm_id):
     }
     return render(request, 'core/mapping_link_page.html', context)
 
+
 @login_required
 def map_boundary_corners_view(request, farm_id):
     """DEPRECATED/OLD - Handles manual boundary mapping directly in session."""
     # This view is replaced by the token-based one below
     # You might want to remove it or leave it commented out
-    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        return redirect('core:home')
+
     messages.warning(request, "This mapping method is deprecated. Please generate a mapping link instead.")
     return redirect('core:farm_detail', farm_id=farm.id)
 
-# NEW view for token-based mapping
+
 def map_boundary_via_token_view(request, token):
     """Handles mapping using a unique token, typically on mobile."""
-    try:
-        token_instance = BoundaryMappingToken.objects.get(token=token)
-        if not token_instance.is_valid():
-            # Handle expired token
-            return render(request, 'core/mapping_error.html', {'error': 'This mapping link has expired.'})
-        
-        farm = token_instance.farm
-
-    except BoundaryMappingToken.DoesNotExist:
-        # Handle invalid token
-        return render(request, 'core/mapping_error.html', {'error': 'Invalid mapping link.'})
-    except Exception as e:
-        # Handle other errors
-        return render(request, 'core/mapping_error.html', {'error': f'An unexpected error occurred: {e}'})
+    # Validate token and get farm
+    is_valid, farm, error = validate_mapping_token(token)
+    
+    if not is_valid:
+        return render(request, 'core/mapping_error.html', {'error': error})
 
     if request.method == 'POST':
         boundary_coords_str = request.POST.get('boundary_coordinates')
         if not boundary_coords_str:
-            # Return JSON error if submitted via JS fetch? Or just show template error?
-             return render(request, 'core/map_boundary_corners.html', {
+            return render(request, 'core/map_boundary_corners.html', {
                 'farm': farm,
-                'token': token, # Pass token back to template if needed
+                'token': token,
                 'error_message': "No boundary coordinates received."
             })
 
-        try:
-            # Parse the JSON string from the hidden input
-            # Expecting GeoJSON Polygon structure now (saved from JS)
-            geojson_boundary = json.loads(boundary_coords_str)
-            
-            # Basic validation of GeoJSON structure - Restructured for linter
-            valid_structure = True
-            if not isinstance(geojson_boundary, dict): valid_structure = False
-            if valid_structure and geojson_boundary.get('type') != 'Polygon': valid_structure = False
-            coords = geojson_boundary.get('coordinates')
-            if valid_structure and not isinstance(coords, list): valid_structure = False
-            if valid_structure and len(coords) == 0: valid_structure = False
-            if valid_structure and len(coords[0]) < 4: valid_structure = False # Min 4 points for closed Polygon
-                
-            if not valid_structure:
-                raise ValueError("Invalid GeoJSON Polygon structure received.")
-            
-            # Save to farm
-            farm.boundary = geojson_boundary
-            farm.save(update_fields=['boundary'])
-
-            # Invalidate the token after successful use
-            token_instance.expires_at = timezone.now() # Set expiry to now
-            token_instance.save()
-            
-            # Redirect to a simple success page (no login required for this page)
-            return render(request, 'core/mapping_success.html', {'farm_name': farm.name})
-
-        except json.JSONDecodeError:
-            error_message = "Invalid boundary data format received."
-        except (ValueError, TypeError, IndexError) as e:
-            error_message = f"Error processing boundary data: {e}"
-        except Exception as e:
-             error_message = f"An unexpected error occurred: {e}"
+        # Save boundary to farm
+        success, error_message = save_boundary_to_farm(farm, boundary_coords_str)
         
-        # If errors occurred, render the mapping page again with an error
-        return render(request, 'core/map_boundary_corners.html', {
-            'farm': farm,
-            'token': token,
-            'error_message': error_message
-        })
+        if success:
+            # Invalidate the token after successful use
+            invalidate_token(BoundaryMappingToken.objects.get(token=token))
+            
+            # Redirect to success page
+            return render(request, 'core/mapping_success.html', {'farm_name': farm.name})
+        else:
+            # If errors occurred, render the mapping page again with an error
+            return render(request, 'core/map_boundary_corners.html', {
+                'farm': farm,
+                'token': token,
+                'error_message': error_message
+            })
 
     # GET request: Render the mapping template
-    # Pass farm and token to the template
     context = {
         'farm': farm,
-        'token': token, 
+        'token': token,
     }
-    # Use the same template as before, the JS will handle interaction
     return render(request, 'core/map_boundary_corners.html', context)
+
 
 @login_required
 def geoscape_test_view(request):
