@@ -14,7 +14,7 @@ from .forms import (
 )
 from .models import (
     Farm, PlantType, PlantPart, Pest, SurveillanceRecord, 
-    Grower, Region, SurveillanceCalculation, BoundaryMappingToken
+    Grower, Region, SurveillanceCalculation, BoundaryMappingToken, Disease
 )
 
 # Import services
@@ -138,6 +138,38 @@ def farm_detail_view(request, farm_id):
             season=default_season
         )
     
+    # Determine the season used for recommendations (either from saved calc or default)
+    recommendation_season = calculation_results.get('season', default_season)
+
+    # --- Get Pests, Diseases, and Parts based on Farm and Season ---
+    priority_pests = []
+    priority_diseases = []
+    recommended_parts = []
+
+    if farm.plant_type:
+        # Get priority pests for this season and plant type
+        priority_pests = Pest.get_priority_pests_for_season(
+            season=recommendation_season,
+            plant_type=farm.plant_type
+        )
+        
+        # Get priority diseases (simple filter by plant type for now)
+        # TODO: Implement get_priority_diseases_for_season in Disease model later if needed
+        priority_diseases = Disease.objects.filter(
+            affects_plant_types=farm.plant_type
+        ).distinct()[:3] # Simple filter, limit to 3 for consistency
+
+        # Get recommended parts to check (based on the season used in calculation)
+        recommended_parts = get_recommended_plant_parts(
+            season=recommendation_season,
+            plant_type=farm.plant_type
+        )
+    else:
+        messages.info(request, "Plant type not set for this farm, cannot determine specific pests/diseases/parts.")
+
+    # Get recommended frequency and next due date
+    surveillance_frequency = get_surveillance_frequency(recommendation_season, farm)
+
     # Get recommendations from service
     surveillance_recommendations = get_surveillance_recommendations(farm)
     
@@ -149,11 +181,12 @@ def farm_detail_view(request, farm_id):
         'farm': farm,
         'calculation_results': calculation_results,
         'surveillance_records': records,
-        'default_season_used': calculation_results.get('season', default_season),
+        'default_season_used': recommendation_season,
         'default_confidence_used': calculation_results.get('confidence_level_percent', default_confidence),
-        'priority_pests': surveillance_recommendations['priority_pests'],
-        'recommended_parts': surveillance_recommendations['recommended_parts'],
-        'surveillance_frequency': surveillance_recommendations['next_due_date'],
+        'priority_pests': priority_pests,
+        'priority_diseases': priority_diseases,
+        'recommended_parts': recommended_parts,
+        'surveillance_frequency': surveillance_frequency,
         'last_surveillance_date': surveillance_recommendations['last_surveillance_date'],
         'next_due_date': surveillance_recommendations['next_due_date'],
         'farm_boundary_json': farm.boundary  # Pass boundary data directly (should be JSON serializable)

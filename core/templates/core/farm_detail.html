@@ -105,15 +105,22 @@
                 {% endif %}
                 
                 <p class="mt-3 fw-bold">Check for these priority pests:</p>
-                <ul class="list-group">
+                <ul class="list-group mb-3">
                     {% for pest in priority_pests %}
                         <li class="list-group-item d-flex justify-content-between align-items-center">
                             {{ pest.name }}
-                            <span class="badge bg-danger rounded-pill">High</span>
+                            <span class="badge bg-danger rounded-pill">High Priority</span>
                         </li>
-                    {% empty %}
-                        <li class="list-group-item">Anthracnose</li>
-                        <li class="list-group-item">Mango Fruit Fly</li>
+                    {% endfor %}
+                </ul>
+                
+                <p class="mt-3 fw-bold">Check for these priority diseases:</p>
+                <ul class="list-group">
+                    {% for disease in priority_diseases %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            {{ disease.name }}
+                            <span class="badge bg-warning text-dark rounded-pill">Check</span>
+                        </li>
                     {% endfor %}
                 </ul>
             </div>
@@ -122,10 +129,6 @@
                 <ul class="list-group">
                     {% for part in recommended_parts %}
                         <li class="list-group-item">{{ part }}</li>
-                    {% empty %}
-                        <li class="list-group-item">Leaves</li>
-                        <li class="list-group-item">Fruit</li>
-                        <li class="list-group-item">Trunk</li>
                     {% endfor %}
                 </ul>
                 
