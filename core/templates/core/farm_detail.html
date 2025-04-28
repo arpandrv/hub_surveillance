@@ -34,8 +34,12 @@
     {# Farm Details Body #}
     <div class="card-body">
         {# Map Container - Initially hidden #}
-        <div id="mapContainer" style="display: none;">
+        <div id="mapContainer" style="display: none; position: relative;">
              <div id="map"></div>
+             {# Recenter Button - Added #}
+             <button id="recenterMapBtn" class="btn btn-light btn-sm" style="position: absolute; top: 10px; right: 10px; z-index: 1000; display: none;"> {# Initially hidden #}
+                 <i class="bi bi-aspect-ratio"></i> Recenter
+             </button>
              <p class="text-muted small mt-1">Farm boundary shown from Geoscape data.</p>
         </div>
 
@@ -238,30 +242,26 @@ document.addEventListener('DOMContentLoaded', function() {
     const boundaryData = {{ farm_boundary_json|safe }};
     const mapContainer = document.getElementById('mapContainer');
     const toggleMapBtn = document.getElementById('toggleMapBtn');
+    const recenterMapBtn = document.getElementById('recenterMapBtn'); // Get recenter button
     let map = null; // Variable to hold the map instance
     let boundaryLayer = null;
 
-    // Only proceed if boundary data exists
-    if (boundaryData && toggleMapBtn) {
+    if (boundaryData && toggleMapBtn && recenterMapBtn) {
         toggleMapBtn.addEventListener('click', function() {
-            // Toggle visibility
             const isHidden = mapContainer.style.display === 'none';
             mapContainer.style.display = isHidden ? 'block' : 'none';
 
-            // Initialize map only if it's visible and not already initialized
             if (isHidden && !map) {
                 console.log("Initializing Leaflet map.");
                 try {
-                    // --- Initialize Map ---
-                    map = L.map('map').setView([-12.46, 130.84], 10); // Default view (e.g., Darwin)
+                    map = L.map('map').setView([-12.46, 130.84], 10);
 
-                    // --- Add Tile Layer (using OpenStreetMap) ---
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        maxZoom: 19,
-                        attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                        subdomains: 'abcd',
+                        maxZoom: 20
                     }).addTo(map);
 
-                    // --- Add GeoJSON Boundary ---
                     console.log("Adding boundary data to map:", boundaryData);
                     boundaryLayer = L.geoJSON(boundaryData, {
                         style: function (feature) {
@@ -269,39 +269,55 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }).addTo(map);
 
-                    // --- Fit map to boundary --- 
                     if (boundaryLayer.getBounds().isValid()) {
-                        map.fitBounds(boundaryLayer.getBounds().pad(0.1)); // Add slight padding
+                        const bounds = boundaryLayer.getBounds();
+                        map.fitBounds(bounds.pad(0.1)); // Fit initially
                         console.log("Map fitted to boundary bounds.");
+
+                        // --- Restrict Panning Area --- 
+                        const paddedBounds = bounds.pad(5.0); // Pad by 500% 
+                        map.setMaxBounds(paddedBounds);
+                        // Set minZoom based on the PADDED bounds, not the original boundary bounds
+                        map.setMinZoom(map.getBoundsZoom(paddedBounds)); 
+                        console.log("Map bounds restricted, minZoom set to padded bounds view.");
+
+                        // --- Show and Enable Recenter Button ---
+                        recenterMapBtn.style.display = 'block';
+                        recenterMapBtn.addEventListener('click', function() {
+                            console.log("Recenter button clicked.");
+                            if (map && boundaryLayer && boundaryLayer.getBounds().isValid()) {
+                                map.fitBounds(boundaryLayer.getBounds().pad(0.1));
+                            }
+                        });
+
                     } else {
-                        console.warn("Boundary layer bounds are not valid, cannot fit map.");
+                        console.warn("Boundary layer bounds are not valid, cannot fit map or set maxBounds.");
+                        recenterMapBtn.style.display = 'none'; // Hide recenter if bounds invalid
                     }
 
-                    // Adjust button text
                     toggleMapBtn.innerHTML = '<i class="bi bi-map-fill me-1"></i> Hide Boundary Map';
 
                 } catch (e) {
                     console.error("Error initializing Leaflet map or adding GeoJSON:", e);
                     mapContainer.innerHTML = '<div class="alert alert-danger">Could not load map boundary.</div>';
+                    recenterMapBtn.style.display = 'none'; // Hide recenter on error
                 }
             } else if (isHidden && map) {
-                 // Map exists but was hidden, ensure bounds are still correct
-                 map.invalidateSize(); // Important after showing a hidden map
+                 map.invalidateSize();
                  if (boundaryLayer && boundaryLayer.getBounds().isValid()){
                       map.fitBounds(boundaryLayer.getBounds().pad(0.1));
                  }
                  toggleMapBtn.innerHTML = '<i class="bi bi-map-fill me-1"></i> Hide Boundary Map';
+                 recenterMapBtn.style.display = 'block'; // Ensure recenter is visible when map is shown
             } else {
-                 // Hiding the map
                  toggleMapBtn.innerHTML = '<i class="bi bi-map me-1"></i> Show Boundary Map';
+                 recenterMapBtn.style.display = 'none'; // Hide recenter when map is hidden
             }
         });
 
     } else {
-        console.log("No boundary data found or map button missing.");
-        if (toggleMapBtn) {
-            toggleMapBtn.disabled = true; // Ensure button is disabled if no data
-        }
+        console.log("No boundary data found or map buttons missing.");
+        if (toggleMapBtn) toggleMapBtn.disabled = true;
     }
 });
 </script>
