@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 
 from .models import (
     Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region,
-    SEASON_CHOICES, CONFIDENCE_CHOICES
+    SEASON_CHOICES, CONFIDENCE_CHOICES, Disease
 )
 
 
@@ -143,10 +143,18 @@ class SurveillanceRecordForm(forms.ModelForm):
         required=False
     )
     pests_found = forms.ModelMultipleChoiceField(
-        queryset=Pest.objects.all(),
+        queryset=Pest.objects.none(),
         widget=forms.CheckboxSelectMultiple,
-        required=False
+        required=False,
+        label="Pests Found"
     )
+    diseases_found = forms.ModelMultipleChoiceField(
+        queryset=Disease.objects.all(),
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Diseases Found"
+    )
+    notes = forms.CharField(widget=forms.Textarea(attrs={'rows': 3}), required=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -169,6 +177,7 @@ class SurveillanceRecordForm(forms.ModelForm):
             'plants_surveyed',
             'plant_parts_checked',
             'pests_found',
+            'diseases_found',
             'notes'
         ]
         widgets = {

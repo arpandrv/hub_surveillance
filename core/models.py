@@ -150,6 +150,21 @@ class Pest(models.Model):
         return queryset[:3]  # Return top 3 as an example
 
 
+class Disease(models.Model):
+    """
+    Represents a disease that can affect plants.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True, null=True)
+    affects_plant_types = models.ManyToManyField(PlantType, related_name='diseases', blank=True)
+    affects_plant_parts = models.ManyToManyField(PlantPart, related_name='diseases', blank=True)
+
+    def __str__(self):
+        return self.name
+    
+    # We can add classmethods like get_priority_diseases later if needed
+
+
 class Farm(models.Model):
     """
     Represents a farm managed by a grower.
@@ -273,6 +288,7 @@ class SurveillanceRecord(models.Model):
     plants_surveyed = models.IntegerField()
     plant_parts_checked = models.ManyToManyField(PlantPart, related_name='surveillance_records', blank=True)
     pests_found = models.ManyToManyField(Pest, related_name='surveillance_records', blank=True)
+    diseases_found = models.ManyToManyField(Disease, related_name='surveillance_records', blank=True)
     notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
