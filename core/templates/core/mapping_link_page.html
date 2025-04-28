@@ -1,0 +1,120 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Generate Mapping Link - {{ farm.name }}{% endblock %}
+
+{% block head_extra %}
+{# Add Leaflet CSS if needed for other blocks, or remove if only used for map page #}
+{% endblock head_extra %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Farm Boundary Mapping Link</h4>
+                </div>
+                <div class="card-body">
+                    <p>To map the boundary for farm "<strong>{{ farm.name }}</strong>", open the unique link below on your mobile device while you are at the farm.</p>
+                    <p>Alternatively, scan the QR code with your phone's camera.</p>
+
+                    <div class="mt-4 p-3 rounded" style="background-color: #eef; border: 1px solid #ddd;">
+                        <h5>Your Unique Mapping Link:</h5>
+                        <div class="input-group mb-2">
+                            <input type="text" id="mapping-url" class="form-control form-control-sm" value="{{ mapping_url }}" readonly>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="copy-button" onclick="copyLink()">
+                                <i class="bi bi-clipboard"></i> Copy
+                            </button>
+                        </div>
+                        <p class="small text-muted mb-0">This link allows boundary mapping for this farm only and expires on {{ expires_at|date:"Y-m-d H:i" }}.</p>
+                    </div>
+
+                    <div class="row mt-4 align-items-center">
+                        <div class="col-md-6 text-center mb-3 mb-md-0">
+                            <h5>QR Code for Mobile Access:</h5>
+                            <div id="qrcode" class="mt-2" style="display: inline-block; border: 1px solid #ccc; padding: 5px;"></div> {# Added border #}
+                        </div>
+                        <div class="col-md-6">
+                            <div class="alert alert-warning small">
+                                <h5 class="alert-heading"><i class="bi bi-exclamation-triangle-fill"></i> Important Notes:</h5>
+                                <ul class="mb-0">
+                                    <li>Use the link/QR code on your mobile phone <strong>at the farm</strong>.</li>
+                                    <li>Ensure your phone's GPS is enabled and allowed for your browser.</li>
+                                    <li>Walk the perimeter and record corners strictly <strong>in order</strong>.</li>
+                                    <li>For best results, stand still at each corner for a few seconds before recording.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+                    <div class="text-end">
+                        <a href="{% url 'core:farm_detail' farm_id=farm.id %}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left-circle"></i> Back to Farm Details
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{# QR Code Generation Library #}
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const qrElement = document.getElementById("qrcode");
+    const mappingUrl = document.getElementById("mapping-url")?.value; // Get value safely
+
+    if (qrElement && mappingUrl && typeof QRCode !== 'undefined') {
+        try {
+            new QRCode(qrElement, {
+                text: mappingUrl,
+                width: 180, // Adjust size as needed
+                height: 180,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H // High correction level
+            });
+             console.log("QR Code generated for:", mappingUrl);
+        } catch (e) {
+            console.error("Error generating QR Code:", e);
+            qrElement.innerHTML = "<p class='text-danger small'>Error generating QR code.</p>";
+        }
+    } else {
+        console.error("Could not generate QR Code. Element:", qrElement, "URL:", mappingUrl, "Library loaded:", typeof QRCode !== 'undefined');
+        if(qrElement) qrElement.innerHTML = "<p class='text-danger small'>QR Code could not be displayed.</p>";
+    }
+});
+
+function copyLink() {
+    const copyText = document.getElementById("mapping-url");
+    const button = document.getElementById("copy-button");
+    if (!copyText || !button) return;
+
+    copyText.select();
+    copyText.setSelectionRange(0, 99999); // For mobile devices
+
+    navigator.clipboard.writeText(copyText.value).then(() => {
+        const originalHtml = button.innerHTML;
+        button.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+        button.classList.remove('btn-outline-secondary');
+        button.classList.add('btn-success');
+        button.disabled = true;
+        setTimeout(() => {
+            button.innerHTML = originalHtml;
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-secondary');
+            button.disabled = false;
+        }, 2500);
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+        alert('Failed to copy link. Please copy manually.');
+    });
+}
+</script>
+{% endblock %} 

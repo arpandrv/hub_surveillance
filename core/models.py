@@ -4,6 +4,8 @@ from django.utils import timezone
 from decimal import Decimal
 # Import GIS models if using GeoDjango
 # from django.contrib.gis.db import models as gis_models
+import uuid
+from datetime import timedelta
 
 class Grower(models.Model):
     """
@@ -259,3 +261,25 @@ class SurveillanceCalculation(models.Model):
         if self.is_current:
             SurveillanceCalculation.objects.filter(farm=self.farm, is_current=True).update(is_current=False)
         super().save(*args, **kwargs)
+
+class BoundaryMappingToken(models.Model):
+    """
+    Stores a temporary, unique token for mapping a farm boundary.
+    """
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='mapping_tokens')
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    def save(self, *args, **kwargs):
+        # Set expiration time (e.g., 24 hours from creation)
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(hours=24)
+        super().save(*args, **kwargs)
+
+    def is_valid(self):
+        """Check if the token is still valid."""
+        return self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"Token for {self.farm.name} (Expires: {self.expires_at.strftime('%Y-%m-%d %H:%M')})"

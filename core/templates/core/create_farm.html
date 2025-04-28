@@ -80,7 +80,13 @@
                     {# General Location Section #}
                     <div id="general-location-section" class="mb-3">
                         <div class="alert alert-secondary small" role="alert">
-                            No problem! You can map your farm's boundary later. For now, add a general description.
+                            <i class="bi bi-info-circle me-1"></i>
+                            No problem if you don't have an exact address! You can describe the general location below.
+                        </div>
+                        {# ADDED WARNING for manual mapping #}
+                        <div class="alert alert-warning small" role="alert">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            <strong>Manual Boundary Mapping:</strong> If you plan to map the boundary later using GPS, please ensure you walk the perimeter and record the corners strictly <strong>in order</strong> (either clockwise or counter-clockwise). Recording corners out of sequence will result in an incorrect map.
                         </div>
                         <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
                         <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" 

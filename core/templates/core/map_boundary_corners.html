@@ -1,0 +1,303 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Map Boundary Corners - {{ farm.name }}{% endblock %}
+
+{% block head_extra %}
+{# Add Leaflet CSS #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<style>
+  #map {
+    height: 65vh; /* Adjust height */
+    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+  }
+  .status-bar {
+    padding: 0.5rem 1rem;
+    background-color: #e9ecef;
+    margin-bottom: 1rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  .corner-controls button {
+      margin-bottom: 0.5rem;
+  }
+</style>
+{% endblock head_extra %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">Map Farm Boundary Corners</h4>
+            <span class="badge bg-light text-dark">{{ farm.name }}</span>
+        </div>
+        <div class="card-body">
+
+            <div class="alert alert-warning small" role="alert">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                <strong>Instructions:</strong> Go to the first corner of your farm boundary. Click "Record Corner". Then, walk around the perimeter to the next corner and click "Record Corner" again. Repeat for all corners, ensuring you record them <strong>strictly in order</strong> (clockwise or counter-clockwise). Click "Save Boundary" when finished. You need at least 3 corners.
+            </div>
+
+            <div class="status-bar d-flex justify-content-between align-items-center">
+                <div>
+                    Current Corner: <span id="corner-number" class="fw-bold">1</span>
+                </div>
+                <div>
+                    Corners Recorded: <span id="point-count" class="fw-bold">0</span>
+                </div>
+                 <div>
+                    GPS Status: <span id="gps-status">Initializing...</span>
+                </div>
+            </div>
+
+            <div id="map"></div>
+
+            <div class="row corner-controls">
+                <div class="col-md-4 mb-2">
+                    <button id="record-corner-button" class="btn btn-primary w-100">
+                        <i class="bi bi-geo-alt-fill"></i> Record Corner <span id="current-corner-label">1</span>
+                    </button>
+                </div>
+                 <div class="col-md-4 mb-2">
+                    <button id="undo-button" class="btn btn-outline-warning w-100" disabled>
+                        <i class="bi bi-arrow-counterclockwise"></i> Undo Last Corner
+                    </button>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <button id="save-button" class="btn btn-success w-100" disabled>
+                        <i class="bi bi-check-lg"></i> Save Boundary
+                    </button>
+                 </div>
+            </div>
+
+            <ul id="coordinate-list" class="list-group list-group-flush small mt-2" style="max-height: 100px; overflow-y: auto;">
+                {# Recorded coordinates will be listed here by JS #}
+            </ul>
+
+            {# Hidden form to submit data #}
+            <form id="boundary-form" method="post" class="mt-3 d-none">
+                {% csrf_token %}
+                <input type="hidden" name="boundary_coordinates" id="id_boundary_coordinates">
+                {# Add farm id if needed, although view will get it from URL #}
+            </form>
+             <div id="form-messages"></div> {# For success/error messages #}
+            
+             <hr>
+             <div class="text-end">
+                 <a href="{% url 'core:farm_detail' farm_id=farm.id %}" class="btn btn-sm btn-outline-secondary">Cancel Mapping</a>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{# Add Leaflet JS #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("Corner mapping page loaded.");
+
+    // --- Map Initialization ---
+    const map = L.map('map').setView([-12.4634, 130.8456], 13); // Default to Darwin, NT
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // --- UI Elements ---
+    const recordButton = document.getElementById('record-corner-button');
+    const undoButton = document.getElementById('undo-button');
+    const saveButton = document.getElementById('save-button');
+    const cornerNumberDisplay = document.getElementById('corner-number');
+    const pointCountDisplay = document.getElementById('point-count');
+    const currentCornerLabel = document.getElementById('current-corner-label');
+    const gpsStatusDisplay = document.getElementById('gps-status');
+    const coordinateListDisplay = document.getElementById('coordinate-list');
+    const boundaryInput = document.getElementById('id_boundary_coordinates');
+    const boundaryForm = document.getElementById('boundary-form');
+    const formMessages = document.getElementById('form-messages');
+
+    // --- State Variables ---
+    let recordedCoords = []; // Stores [lat, lng] pairs as recorded
+    let markers = [];
+    let polyline = null;
+    let currentCornerNum = 1;
+    let lastPosition = null;
+
+    // --- Functions ---
+    function updateUIState() {
+        pointCountDisplay.textContent = recordedCoords.length;
+        cornerNumberDisplay.textContent = currentCornerNum;
+        currentCornerLabel.textContent = currentCornerNum;
+        
+        // Enable/disable buttons
+        undoButton.disabled = recordedCoords.length === 0;
+        saveButton.disabled = recordedCoords.length < 3;
+
+        // Update coordinate list display
+        coordinateListDisplay.innerHTML = '';
+        recordedCoords.forEach((coord, index) => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = `Corner ${index + 1}: Lat ${coord[0].toFixed(6)}, Lng ${coord[1].toFixed(6)}`;
+            coordinateListDisplay.appendChild(li);
+        });
+         if (coordinateListDisplay.children.length > 0) {
+             coordinateListDisplay.scrollTop = coordinateListDisplay.scrollHeight;
+         }
+    }
+
+    function drawMapFeatures() {
+        // Clear existing markers and polyline
+        markers.forEach(marker => map.removeLayer(marker));
+        markers = [];
+        if (polyline) {
+            map.removeLayer(polyline);
+            polyline = null;
+        }
+
+        // Add new markers
+        recordedCoords.forEach((coord, index) => {
+            const marker = L.marker(coord).addTo(map)
+                .bindPopup(`Corner ${index + 1}`)
+                .openPopup(); // Open popup for the latest marker
+            markers.push(marker);
+        });
+
+        // Add polyline if enough points
+        if (recordedCoords.length > 1) {
+            polyline = L.polyline(recordedCoords, { color: 'blue', weight: 3 }).addTo(map);
+        }
+
+        // Fit map to markers/polyline
+        if (markers.length > 0) {
+            const group = L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.2));
+        } else if (lastPosition) {
+            map.setView([lastPosition.latitude, lastPosition.longitude], 17); // Center on last known GPS
+        }
+    }
+
+    function recordCorner() {
+        recordButton.disabled = true;
+        gpsStatusDisplay.textContent = "Getting position...";
+        gpsStatusDisplay.style.color = "orange";
+
+        if (!navigator.geolocation) {
+            gpsStatusDisplay.textContent = "Geolocation not supported!";
+            gpsStatusDisplay.style.color = "red";
+            recordButton.disabled = false;
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                lastPosition = position.coords;
+                const lat = lastPosition.latitude;
+                const lng = lastPosition.longitude;
+                const accuracy = lastPosition.accuracy;
+                
+                gpsStatusDisplay.textContent = `Accuracy: ${accuracy.toFixed(1)}m`;
+                gpsStatusDisplay.style.color = accuracy < 20 ? "green" : "orange";
+                
+                // Store coordinates as [lat, lng] for Leaflet
+                recordedCoords.push([lat, lng]);
+                currentCornerNum++;
+                
+                updateUIState();
+                drawMapFeatures();
+                recordButton.disabled = false;
+                 // Show success message briefly?
+            },
+            (error) => {
+                gpsStatusDisplay.textContent = `Error: ${error.message}`;
+                gpsStatusDisplay.style.color = "red";
+                console.error("Geolocation error:", error);
+                recordButton.disabled = false;
+            },
+            {
+                enableHighAccuracy: true, // Request high accuracy
+                timeout: 10000, // Allow 10 seconds to get a fix
+                maximumAge: 0 // Force fresh reading
+            }
+        );
+    }
+
+    function undoLastCorner() {
+        if (recordedCoords.length > 0) {
+            recordedCoords.pop(); // Remove last coordinate
+            currentCornerNum--;
+            updateUIState();
+            drawMapFeatures();
+        }
+    }
+
+    function saveBoundary() {
+        if (recordedCoords.length < 3) {
+            alert("You need to record at least 3 corners to form a boundary.");
+            return;
+        }
+        
+        // **IMPORTANT**: Convert to [lng, lat] for GeoJSON standard
+        let geoJsonCoords = recordedCoords.map(coord => [coord[1], coord[0]]); 
+        
+        // Close the loop if not already closed
+        if (geoJsonCoords.length > 0 && (geoJsonCoords[0][0] !== geoJsonCoords[geoJsonCoords.length - 1][0] || geoJsonCoords[0][1] !== geoJsonCoords[geoJsonCoords.length - 1][1])) {
+            geoJsonCoords.push(geoJsonCoords[0]);
+        }
+        
+        // Structure for GeoJSON Polygon (needs extra nesting)
+        const geoJsonPolygon = {
+             type: "Polygon",
+             coordinates: [geoJsonCoords] // Coordinates nested in an array
+         };
+
+        // Set hidden input value as stringified JSON
+        boundaryInput.value = JSON.stringify(geoJsonPolygon);
+
+        // Disable button and submit form
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+        formMessages.innerHTML = ''; // Clear previous messages
+        boundaryForm.submit();
+        
+        // Note: Form submission redirects, no need for further JS unless using fetch API
+    }
+
+    // --- Event Listeners ---
+    recordButton.addEventListener('click', recordCorner);
+    undoButton.addEventListener('click', undoLastCorner);
+    saveButton.addEventListener('click', saveBoundary);
+
+    // --- Initial Setup ---
+    updateUIState(); // Initial UI state
+    
+    // Try to get initial location to center map
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                 lastPosition = position.coords;
+                 map.setView([lastPosition.latitude, lastPosition.longitude], 17);
+                 gpsStatusDisplay.textContent = "Ready";
+                 gpsStatusDisplay.style.color = "green";
+            },
+            (error) => {
+                console.warn("Could not get initial location:", error.message);
+                gpsStatusDisplay.textContent = "Ready (Location N/A)";
+                gpsStatusDisplay.style.color = "gray";
+            }, 
+            { timeout: 5000 }
+        );
+    } else {
+        gpsStatusDisplay.textContent = "Geolocation N/A";
+        gpsStatusDisplay.style.color = "gray";
+    }
+
+});
+</script>
+{% endblock extra_js %} 

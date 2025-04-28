@@ -7,9 +7,11 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from django.conf import settings
 import requests
+import json # Import json module
+from django.urls import reverse # Import reverse
 
 from .forms import SignUpForm, FarmForm, SurveillanceRecordForm, UserEditForm, GrowerProfileEditForm, CalculatorForm
-from .models import Farm, PlantType, PlantPart, Pest, SurveillanceRecord, Grower, Region, SurveillanceCalculation
+from .models import Farm, PlantType, PlantPart, Pest, SurveillanceRecord, Grower, Region, SurveillanceCalculation, BoundaryMappingToken # Add BoundaryMappingToken
 from .calculations import (
     calculate_surveillance_effort, 
     get_recommended_plant_parts,
@@ -664,6 +666,113 @@ def address_suggestion_view(request):
         response_data['state_territory_used'] = state_territory_used # Optionally return state used
         
     return JsonResponse(response_data)
+
+@login_required
+def generate_mapping_link_view(request, farm_id):
+    """Generates a unique link and displays it with a QR code for mobile mapping."""
+    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+
+    # Create a new token (consider invalidating old ones? For now, just create a new one)
+    token_instance = BoundaryMappingToken.objects.create(farm=farm)
+
+    # Construct the full URL for the mapping page
+    mapping_path = reverse('core:map_boundary_via_token', kwargs={'token': str(token_instance.token)})
+    mapping_url = request.build_absolute_uri(mapping_path)
+
+    context = {
+        'farm': farm,
+        'mapping_url': mapping_url,
+        'expires_at': token_instance.expires_at,
+    }
+    return render(request, 'core/mapping_link_page.html', context)
+
+@login_required
+def map_boundary_corners_view(request, farm_id):
+    """DEPRECATED/OLD - Handles manual boundary mapping directly in session."""
+    # This view is replaced by the token-based one below
+    # You might want to remove it or leave it commented out
+    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    messages.warning(request, "This mapping method is deprecated. Please generate a mapping link instead.")
+    return redirect('core:farm_detail', farm_id=farm.id)
+
+# NEW view for token-based mapping
+def map_boundary_via_token_view(request, token):
+    """Handles mapping using a unique token, typically on mobile."""
+    try:
+        token_instance = BoundaryMappingToken.objects.get(token=token)
+        if not token_instance.is_valid():
+            # Handle expired token
+            return render(request, 'core/mapping_error.html', {'error': 'This mapping link has expired.'})
+        
+        farm = token_instance.farm
+
+    except BoundaryMappingToken.DoesNotExist:
+        # Handle invalid token
+        return render(request, 'core/mapping_error.html', {'error': 'Invalid mapping link.'})
+    except Exception as e:
+        # Handle other errors
+        return render(request, 'core/mapping_error.html', {'error': f'An unexpected error occurred: {e}'})
+
+    if request.method == 'POST':
+        boundary_coords_str = request.POST.get('boundary_coordinates')
+        if not boundary_coords_str:
+            # Return JSON error if submitted via JS fetch? Or just show template error?
+             return render(request, 'core/map_boundary_corners.html', {
+                'farm': farm,
+                'token': token, # Pass token back to template if needed
+                'error_message': "No boundary coordinates received."
+            })
+
+        try:
+            # Parse the JSON string from the hidden input
+            # Expecting GeoJSON Polygon structure now (saved from JS)
+            geojson_boundary = json.loads(boundary_coords_str)
+            
+            # Basic validation of GeoJSON structure - Restructured for linter
+            valid_structure = True
+            if not isinstance(geojson_boundary, dict): valid_structure = False
+            if valid_structure and geojson_boundary.get('type') != 'Polygon': valid_structure = False
+            coords = geojson_boundary.get('coordinates')
+            if valid_structure and not isinstance(coords, list): valid_structure = False
+            if valid_structure and len(coords) == 0: valid_structure = False
+            if valid_structure and len(coords[0]) < 4: valid_structure = False # Min 4 points for closed Polygon
+                
+            if not valid_structure:
+                raise ValueError("Invalid GeoJSON Polygon structure received.")
+            
+            # Save to farm
+            farm.boundary = geojson_boundary
+            farm.save(update_fields=['boundary'])
+
+            # Invalidate the token after successful use
+            token_instance.expires_at = timezone.now() # Set expiry to now
+            token_instance.save()
+            
+            # Redirect to a simple success page (no login required for this page)
+            return render(request, 'core/mapping_success.html', {'farm_name': farm.name})
+
+        except json.JSONDecodeError:
+            error_message = "Invalid boundary data format received."
+        except (ValueError, TypeError, IndexError) as e:
+            error_message = f"Error processing boundary data: {e}"
+        except Exception as e:
+             error_message = f"An unexpected error occurred: {e}"
+        
+        # If errors occurred, render the mapping page again with an error
+        return render(request, 'core/map_boundary_corners.html', {
+            'farm': farm,
+            'token': token,
+            'error_message': error_message
+        })
+
+    # GET request: Render the mapping template
+    # Pass farm and token to the template
+    context = {
+        'farm': farm,
+        'token': token, 
+    }
+    # Use the same template as before, the JS will handle interaction
+    return render(request, 'core/map_boundary_corners.html', context)
 
 @login_required
 def geoscape_test_view(request):

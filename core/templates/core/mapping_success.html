@@ -1,0 +1,14 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Mapping Successful{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="alert alert-success" role="alert">
+        <h4 class="alert-heading">Boundary Saved!</h4>
+        <p>The boundary for farm "<strong>{{ farm_name }}</strong>" has been successfully mapped and saved.</p>
+        <hr>
+        <p class="mb-0">You can now close this window.</p>
+    </div>
+</div>
+{% endblock %} 

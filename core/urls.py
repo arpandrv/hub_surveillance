@@ -45,6 +45,11 @@ urlpatterns = [
     # User profile
     path('profile/', views.profile_view, name='profile'),
     
+    # Manual Mapping URLs
+    path('farms/<int:farm_id>/generate_mapping_link/', views.generate_mapping_link_view, name='generate_mapping_link'),
+    path('map_boundary_token/<uuid:token>/', views.map_boundary_via_token_view, name='map_boundary_via_token'),
+    # path('farms/<int:farm_id>/map_corners/', views.map_boundary_corners_view, name='map_boundary_corners'), # Keep old one commented/removed
+    
     # API Endpoints
     path('api/address-suggestions/', views.address_suggestion_view, name='api_address_suggestions'),
     # Removed non-existent API view path

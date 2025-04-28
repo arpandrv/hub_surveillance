@@ -1,0 +1,15 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Mapping Error{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading">Mapping Link Error</h4>
+        <p>{{ error|default:"An unspecified error occurred." }}</p>
+        <hr>
+        <p class="mb-0">This link may be invalid, expired, or already used. Please generate a new mapping link from the farm details page.</p>
+    </div>
+     <a href="{% url 'core:dashboard' %}" class="btn btn-secondary">Go to Dashboard</a> {# Link back to dashboard or login #}
+</div>
+{% endblock %} 
