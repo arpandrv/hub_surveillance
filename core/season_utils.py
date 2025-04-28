@@ -1,29 +1,50 @@
 import datetime
 
-def determine_stage_and_p():
+def determine_stage_and_p(override_month=None):
     """
-    Determines the current farming stage and expected prevalence (p) 
-    based on the current month according to the defined mapping.
+    Determines the farming stage and expected prevalence (p) 
+    based on the provided month (or current month if not provided).
     
+    Args:
+        override_month (int, optional): A month number (1-12) to use 
+                                        instead of the current system month. 
+                                        Defaults to None.
+
     Returns:
-        tuple: (stage_name: str, prevalence_p: float)
+        tuple: (stage_name: str, prevalence_p: float, month_used: int)
     """
-    month = datetime.datetime.now().month
-    
+    month_to_use = None
+    if override_month is not None:
+        try:
+            month_val = int(override_month)
+            if 1 <= month_val <= 12:
+                month_to_use = month_val
+                print(f"DEBUG: Using overridden month: {month_to_use}") # Debug print
+            else:
+                print(f"Warning: Invalid override_month ({override_month}). Using current month.")
+        except (ValueError, TypeError):
+            print(f"Warning: Could not parse override_month ({override_month}). Using current month.")
+
+    # If override wasn't valid or provided, use current system month
+    if month_to_use is None:
+        month_to_use = datetime.datetime.now().month
+        # print(f"DEBUG: Using current system month: {month_to_use}") # Optional debug
+
     # Mapping based on approach.md pseudocode logic
-    if 6 <= month <= 8: # June - August
-        return "Flowering", 0.05
-    elif 9 <= month <= 12: # September - December
-        return "Fruit Development", 0.07
-    elif 1 <= month <= 4: # January - April 
-        return "Wet Season", 0.10
-    elif month == 5: # May
-        return "Dry Season", 0.02
+    if 6 <= month_to_use <= 8: # June - August
+        stage, p = "Flowering", 0.05
+    elif 9 <= month_to_use <= 12: # September - December
+        stage, p = "Fruit Development", 0.07
+    elif 1 <= month_to_use <= 4: # January - April 
+        stage, p = "Wet Season", 0.10
+    elif month_to_use == 5: # May
+        stage, p = "Dry Season", 0.02
     else:
-        # Fallback or default case if month logic is somehow missed
-        # Reverting to Wet season prevalence as it's highest risk generally
-        print(f"Warning: Could not determine stage for month {month}. Defaulting to Wet Season.")
-        return "Wet Season", 0.10 
+        # Fallback or default case if month logic is somehow missed (shouldn't happen with validation)
+        print(f"Warning: Could not determine stage for month {month_to_use}. Defaulting to Wet Season.")
+        stage, p = "Wet Season", 0.10 
+        
+    return stage, p, month_to_use # Return the month actually used
 
 def get_active_threats_and_parts(stage):
     """

@@ -45,6 +45,31 @@
                         <i class="bi bi-calculator me-1"></i> Calculate
                     </button>
                 </form>
+
+                {# --- DEBUG: Manual Month Override --- #}
+                <div class="mt-4 pt-3 border-top border-warning">
+                    <small class="text-muted d-block mb-1"><i class="bi bi-bug-fill text-warning me-1"></i><strong>Debug Tool:</strong> Override Month</small>
+                    <form method="get" action="{% url 'core:calculator' %}" class="d-flex align-items-center">
+                        {# Pass existing parameters #}
+                        {% if form.farm.value %}
+                            <input type="hidden" name="farm" value="{{ form.farm.value }}">
+                        {% endif %}
+                        {% if form.confidence_level.value %}
+                            <input type="hidden" name="confidence_level" value="{{ form.confidence_level.value }}">
+                        {% endif %}
+                        
+                        <label for="debug_month_input" class="form-label small me-2 mb-0">Month (1-12):</label>
+                        <input type="number" id="debug_month_input" name="debug_month" 
+                               min="1" max="12" step="1" 
+                               class="form-control form-control-sm me-2" 
+                               style="width: 70px;"
+                               value="{{ request.GET.debug_month }}"> 
+                        <button type="submit" class="btn btn-warning btn-sm">Apply Debug Month</button>
+                    </form>
+                    <small class="text-muted d-block mt-1">Leave blank to use current system month.</small>
+                </div>
+                {# --- END DEBUG --- #}
+
             </div>
         </div>
     </div>
@@ -62,7 +87,13 @@
                         <h6 class="mb-1">Calculation Parameters:</h6>
                         <ul class="list-unstyled small text-muted mb-0">
                             <li><i class="bi bi-geo-alt-fill me-1 text-secondary"></i>Farm: <strong>{{ selected_farm.name }}</strong> ({{ calculation_results.N }} plants)</li>
-                            <li><i class="bi bi-calendar-check-fill me-1 text-secondary"></i>Stage: <strong>{{ current_stage }}</strong> ({{ current_prevalence_p }}% prevalence)</li>
+                            <li>
+                                <i class="bi bi-calendar-check-fill me-1 text-secondary"></i>Stage (Month {{ month_used_for_calc }}): 
+                                <strong>{{ current_stage }}</strong> ({{ current_prevalence_p }}% prevalence)
+                                {% if request.GET.debug_month %}
+                                    <span class="badge bg-warning text-dark ms-1">Debug Month</span>
+                                {% endif %}
+                            </li>
                             <li><i class="bi bi-shield-check me-1 text-secondary"></i>Confidence: <strong>{{ calculation_results.confidence_level_percent }}%</strong></li>
                         </ul>
                     </div>

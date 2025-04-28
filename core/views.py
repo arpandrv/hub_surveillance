@@ -100,7 +100,7 @@ def farm_detail_view(request, farm_id):
     farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
     
     # --- Determine Current Stage and Prevalence --- 
-    current_stage, current_prevalence_p = determine_stage_and_p()
+    current_stage, current_prevalence_p, _ = determine_stage_and_p()
     print(f"Farm {farm.id}: Current Stage='{current_stage}', Prevalence={current_prevalence_p}") # Debug
     
     # --- Get or Calculate Sample Size for Display ---
@@ -274,13 +274,29 @@ def calculator_view(request):
     calculation_results = None
     selected_farm_instance = None
     form_submitted = False
-    current_stage = None # Initialize stage
+    current_stage = None
+    current_prevalence_p = None
+    month_used_for_calc = None
+    debug_month_override = None # Initialize
+
+    # --- Handle Debug Month Override --- 
+    debug_month_str = request.GET.get('debug_month')
+    if debug_month_str:
+        try:
+            month_val = int(debug_month_str)
+            if 1 <= month_val <= 12:
+                debug_month_override = month_val
+                print(f"Calculator View: Using debug_month override: {debug_month_override}")
+            else:
+                 messages.warning(request, f"Invalid debug month ({debug_month_str}) ignored. Using current system month.")
+        except (ValueError, TypeError):
+             messages.warning(request, f"Could not parse debug month ({debug_month_str}) ignored. Using current system month.")
+
+    # Determine current stage, prevalence, and the month used (potentially overridden)
+    current_stage, current_prevalence_p, month_used_for_calc = determine_stage_and_p(override_month=debug_month_override)
     
     # Get initial farm_id from query params if available
     initial_farm_id = request.GET.get('farm')
-    
-    # Always determine current stage and p regardless of submission
-    current_stage, current_prevalence_p = determine_stage_and_p()
     
     # Check if form is submitted (farm and confidence present)
     if request.GET and 'farm' in request.GET and 'confidence_level' in request.GET:
@@ -289,40 +305,58 @@ def calculator_view(request):
         
         if form.is_valid():
             selected_farm_instance = form.cleaned_data['farm']
-            confidence = form.cleaned_data['confidence_level']
+            confidence_str = form.cleaned_data['confidence_level'] # It's a string here
             
-            # Calculate surveillance effort using AUTO stage/p and SELECTED confidence
-            calculation_results = calculate_surveillance_effort(
-                farm=selected_farm_instance,
-                confidence_level_percent=confidence,
-                prevalence_p=current_prevalence_p # Use auto-determined prevalence
-            )
+            # Convert confidence string to int for calculation
+            try:
+                confidence = int(confidence_str)
+            except (ValueError, TypeError):
+                 messages.error(request, "Invalid confidence level selected.")
+                 # Set confidence to default or handle error appropriately
+                 confidence = DEFAULT_CONFIDENCE 
+                 # Potentially return here or set an error flag in calculation_results
+                 calculation_results = {'error': 'Invalid confidence level.'} 
             
-            # Save calculation to database (if valid result)
-            if not calculation_results.get('error') and selected_farm_instance:
-                SurveillanceCalculation.objects.filter(
-                    farm=selected_farm_instance, 
-                    is_current=True
-                ).update(is_current=False)
-                
-                surveillance_calc = SurveillanceCalculation(
+            # Only proceed if confidence was valid or handled
+            if not (calculation_results and calculation_results.get('error')):
+                # Calculate surveillance effort using stage/p (potentially from override) and SELECTED confidence
+                calculation_results = calculate_surveillance_effort(
                     farm=selected_farm_instance,
-                    created_by=request.user,
-                    season=current_stage, # Store the auto-determined stage
-                    confidence_level=confidence,
-                    population_size=calculation_results['N'],
-                    prevalence_percent=Decimal(str(calculation_results['prevalence_p'])) * 100,
-                    margin_of_error=Decimal(str(calculation_results['margin_of_error'])) * 100,
-                    required_plants=calculation_results['required_plants_to_survey'],
-                    percentage_of_total=Decimal(str(calculation_results.get('percentage_of_total', 0))),
-                    survey_frequency=calculation_results.get('survey_frequency'),
-                    is_current=True
+                    confidence_level_percent=confidence, # Pass the integer confidence
+                    prevalence_p=current_prevalence_p # Use stage-determined prevalence
                 )
-                surveillance_calc.save()
-                messages.success(
-                    request, 
-                    f"Surveillance calculation saved for {selected_farm_instance.name} ({current_stage} stage): {calculation_results['required_plants_to_survey']} plants at {confidence}% confidence."
-                )
+                
+                # Add the month used to the results dict for display
+                if calculation_results:
+                     calculation_results['month_used'] = month_used_for_calc
+                
+                # Save calculation to database (if valid result)
+                if not calculation_results.get('error') and selected_farm_instance:
+                    SurveillanceCalculation.objects.filter(
+                        farm=selected_farm_instance, 
+                        is_current=True
+                    ).update(is_current=False)
+                    
+                    surveillance_calc = SurveillanceCalculation(
+                        farm=selected_farm_instance,
+                        created_by=request.user,
+                        season=current_stage, # Store the auto-determined stage
+                        confidence_level=confidence,
+                        population_size=calculation_results['N'],
+                        prevalence_percent=Decimal(str(calculation_results['prevalence_p'])) * 100,
+                        margin_of_error=Decimal(str(calculation_results['margin_of_error'])) * 100,
+                        required_plants=calculation_results['required_plants_to_survey'],
+                        percentage_of_total=Decimal(str(calculation_results.get('percentage_of_total', 0))),
+                        survey_frequency=calculation_results.get('survey_frequency'),
+                        is_current=True,
+                        # Add notes field if you want to record the month used for debug?
+                        # notes=f"Calculation based on month: {month_used_for_calc}"
+                    )
+                    surveillance_calc.save()
+                    messages.success(
+                        request, 
+                        f"Surveillance calculation saved for {selected_farm_instance.name} ({current_stage} stage based on month {month_used_for_calc}): {calculation_results['required_plants_to_survey']} plants at {confidence}% confidence."
+                    )
         else:
             # Show form errors
             for field, errors in form.errors.items():
@@ -345,7 +379,8 @@ def calculator_view(request):
         'calculation_results': calculation_results,
         'form_submitted': form_submitted,
         'current_stage': current_stage, # Pass stage to template
-        'current_prevalence_p': current_prevalence_p * 100 # Pass prevalence as percentage
+        'current_prevalence_p': current_prevalence_p * 100 if current_prevalence_p is not None else None, # Pass prevalence as percentage
+        'month_used_for_calc': month_used_for_calc # Pass month used
     }
     
     return render(request, 'core/calculator.html', context)
