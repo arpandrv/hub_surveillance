@@ -134,20 +134,19 @@ class Pest(models.Model):
     def get_priority_pests_for_season(cls, season, plant_type=None):
         """
         Returns priority pests based on season and plant type.
-        
-        Args:
-            season: String representing the current season
-            plant_type: Optional PlantType instance
-            
-        Returns:
-            QuerySet of Pest instances
+        (Placeholder: Orders differently by season for now)
         """
-        # This method would normally have more advanced logic,
-        # but for now we'll return a simple filter
         queryset = cls.objects.all()
         if plant_type:
             queryset = queryset.filter(affects_plant_types=plant_type)
-        return queryset[:3]  # Return top 3 as an example
+        
+        # Placeholder: Change ordering based on season
+        if season == 'Wet':
+            queryset = queryset.order_by('name')
+        else: # Dry or Flowering
+            queryset = queryset.order_by('-name')
+            
+        return queryset[:3]
 
 
 class Disease(models.Model):
@@ -162,7 +161,24 @@ class Disease(models.Model):
     def __str__(self):
         return self.name
     
-    # We can add classmethods like get_priority_diseases later if needed
+    # ADDED Placeholder Method
+    @classmethod
+    def get_priority_diseases_for_season(cls, season, plant_type=None):
+        """
+        Returns priority diseases based on season and plant type.
+        (Placeholder: Orders differently by season for now)
+        """
+        queryset = cls.objects.all()
+        if plant_type:
+            queryset = queryset.filter(affects_plant_types=plant_type)
+
+        # Placeholder: Change ordering based on season
+        if season == 'Wet':
+            queryset = queryset.order_by('-name')
+        else: # Dry or Flowering
+            queryset = queryset.order_by('name')
+            
+        return queryset[:3]
 
 
 class Farm(models.Model):

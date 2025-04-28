@@ -240,11 +240,6 @@ class CalculatorForm(forms.Form):
         required=False,  # Don't show required validation until form submission
         label="Desired Confidence Level"
     )
-    season = forms.ChoiceField(
-        choices=SEASON_CHOICES,  # Use choices from models.py
-        required=False,  # Don't show required validation until form submission
-        label="Select Current Season/Period"
-    )
 
     def __init__(self, grower, *args, **kwargs):
         """
@@ -266,13 +261,6 @@ class CalculatorForm(forms.Form):
                 # Set confidence level default to 95% if not specified
                 if 'confidence_level' not in initial:
                     initial['confidence_level'] = 95
-                # Set season default to current season if not specified
-                if 'season' not in initial:
-                    try:
-                        # Use the farm's current_season method if available
-                        initial['season'] = farm.current_season()
-                    except AttributeError:
-                        pass  # No default
 
                 # Update the kwargs with our modified initial data
                 kwargs['initial'] = initial
@@ -285,7 +273,6 @@ class CalculatorForm(forms.Form):
         # Additional setup for better user experience
         self.fields['farm'].widget.attrs.update({'class': 'form-select form-select-lg'})
         self.fields['confidence_level'].widget.attrs.update({'class': 'form-select'})
-        self.fields['season'].widget.attrs.update({'class': 'form-select'})
 
     def clean(self):
         """
@@ -303,7 +290,5 @@ class CalculatorForm(forms.Form):
                 self.add_error('farm', 'Please select a farm.')
             if not cleaned_data.get('confidence_level'):
                 self.add_error('confidence_level', 'Please select a confidence level.')
-            if not cleaned_data.get('season'):
-                self.add_error('season', 'Please select a season.')
 
         return cleaned_data

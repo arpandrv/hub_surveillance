@@ -77,21 +77,24 @@
     <div class="card-header text-white" style="background-color: #198754;">
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h5 class="mb-0">Current Recommended Surveillance</h5>
-                <small>(Calculated using {{ default_confidence_used }}% confidence for {{ default_season_used }} season prevalence)</small>
+                <h5 class="mb-0">Surveillance Recommendations</h5>
+                {# Display the auto-detected stage #}
+                <small>(Based on current stage: <strong>{{ current_stage|default:"Unknown" }}</strong>)</small> 
             </div>
             <a href="{% url 'core:calculator' %}?farm={{ farm.id }}" class="btn btn-sm btn-outline-light">
-                <i class="bi bi-calculator"></i> Recalculate
+                <i class="bi bi-calculator"></i> Customize Confidence
             </a>
         </div>
     </div>
     <div class="card-body">
+        {# Check if results exist and no error #}
         {% if calculation_results and not calculation_results.error %}
         <div class="row">
             <div class="col-md-4">
                 <div class="d-flex align-items-center mb-2">
                     <h4 class="mb-0 me-2">{{ calculation_results.required_plants_to_survey }}</h4>
-                    <span class="text-muted">plants to inspect</span>
+                    {# Updated text #}
+                    <span class="text-muted">plants recommended to inspect (at {{ calculation_results.confidence_level_percent|default:95 }}% confidence)</span> 
                 </div>
                 
                 {% if calculation_results.percentage_of_total is not None %}
@@ -119,8 +122,11 @@
                     {% for disease in priority_diseases %}
                         <li class="list-group-item d-flex justify-content-between align-items-center">
                             {{ disease.name }}
+                             {# Placeholder indicator #}
                             <span class="badge bg-warning text-dark rounded-pill">Check</span>
                         </li>
+                    {% empty %}
+                         <li class="list-group-item text-muted small">No specific priority diseases for this stage/plant type.</li>
                     {% endfor %}
                 </ul>
             </div>
@@ -128,7 +134,10 @@
                 <p class="fw-bold">Plant parts to inspect:</p>
                 <ul class="list-group">
                     {% for part in recommended_parts %}
-                        <li class="list-group-item">{{ part }}</li>
+                        {# Now recommended_parts is a QuerySet of PlantPart objects #}
+                        <li class="list-group-item">{{ part.name }}</li> 
+                    {% empty %}
+                         <li class="list-group-item text-muted small">No specific plant parts highlighted for this stage.</li>
                     {% endfor %}
                 </ul>
                 

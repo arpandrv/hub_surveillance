@@ -7,6 +7,9 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from django.urls import reverse
 import json
+from django.conf import settings
+import requests
+from decimal import Decimal
 
 from .forms import (
     SignUpForm, FarmForm, SurveillanceRecordForm, 
@@ -38,6 +41,11 @@ from .services.boundary_service import (
     create_mapping_token, get_mapping_url, validate_mapping_token,
     invalidate_token, save_boundary_to_farm
 )
+
+# Import new utils
+from .season_utils import determine_stage_and_p, get_active_threats_and_parts 
+# Import updated calculation function (assuming it's in calculations.py)
+from .calculations import calculate_surveillance_effort, get_surveillance_frequency, Z_SCORES, DEFAULT_CONFIDENCE
 
 
 def signup_view(request):
@@ -87,114 +95,55 @@ def create_farm_view(request):
 
 @login_required
 def farm_detail_view(request, farm_id):
-    """Display detailed information about a specific farm."""
-    # Get farm with permission check
-    farm, error = get_farm_details(farm_id, request.user)
-    if error:
-        messages.error(request, error)
-        return redirect('core:home')
+    """Display detailed information about a specific farm, using dynamic recommendations."""
+    farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
     
-    # Get saved calculation or calculate new
-    try:
-        saved_calculation = SurveillanceCalculation.objects.filter(
-            farm=farm,
-            is_current=True
-        ).first()
-        
-        if saved_calculation:
-            # Use the saved calculation data
-            default_confidence = saved_calculation.confidence_level
-            default_season = saved_calculation.season
-            
-            # Convert from database model to calculation result format
-            calculation_results = {
-                'N': saved_calculation.population_size,
-                'confidence_level_percent': saved_calculation.confidence_level,
-                'season': saved_calculation.season,
-                'p_percent': float(saved_calculation.prevalence_percent),
-                'd': float(saved_calculation.margin_of_error) / 100,  # Convert percentage back to decimal
-                'required_plants_to_survey': saved_calculation.required_plants,
-                'survey_frequency': saved_calculation.survey_frequency,
-                'percentage_of_total': float(saved_calculation.percentage_of_total),
-                'calculation_date': saved_calculation.date_created.date(),
-                'error': None
-            }
-        else:
-            # No saved calculation found, calculate with defaults
-            default_confidence = 95
-            default_season = farm.current_season()
-            calculation_results = calculate_surveillance_effort(
-                farm=farm,
-                confidence_level_percent=default_confidence,
-                season=default_season
-            )
-    except Exception as e:
-        # If anything goes wrong, fall back to a fresh calculation
-        default_confidence = 95
-        default_season = farm.current_season()
-        calculation_results = calculate_surveillance_effort(
-            farm=farm,
-            confidence_level_percent=default_confidence,
-            season=default_season
-        )
+    # --- Determine Current Stage and Prevalence --- 
+    current_stage, current_prevalence_p = determine_stage_and_p()
+    print(f"Farm {farm.id}: Current Stage='{current_stage}', Prevalence={current_prevalence_p}") # Debug
     
-    # Determine the season used for recommendations (either from saved calc or default)
-    recommendation_season = calculation_results.get('season', default_season)
+    # --- Calculate Sample Size for Display (using default confidence) ---
+    # Note: User can customize confidence via calculator page
+    display_confidence = DEFAULT_CONFIDENCE # Use default for this page view
+    calculation_results = calculate_surveillance_effort(
+        farm=farm,
+        confidence_level_percent=display_confidence,
+        prevalence_p=current_prevalence_p
+    )
+    print(f"Farm {farm.id}: Display Calculation Results={calculation_results}") # Debug
 
-    # --- Get Pests, Diseases, and Parts based on Farm and Season ---
-    priority_pests = []
-    priority_diseases = []
-    recommended_parts = []
+    # --- Get Active Threats and Parts for the Current Stage ---
+    threats_and_parts = get_active_threats_and_parts(current_stage)
+    pest_names = threats_and_parts['pest_names']
+    disease_names = threats_and_parts['disease_names']
+    part_names = threats_and_parts['part_names']
+    print(f"Farm {farm.id}: Active Pests={pest_names}, Diseases={disease_names}, Parts={part_names}") # Debug
 
-    if farm.plant_type:
-        # Get priority pests for this season and plant type
-        priority_pests = Pest.get_priority_pests_for_season(
-            season=recommendation_season,
-            plant_type=farm.plant_type
-        )
-        
-        # Get priority diseases (simple filter by plant type for now)
-        # TODO: Implement get_priority_diseases_for_season in Disease model later if needed
-        priority_diseases = Disease.objects.filter(
-            affects_plant_types=farm.plant_type
-        ).distinct()[:3] # Simple filter, limit to 3 for consistency
+    # --- Fetch corresponding Model objects --- 
+    priority_pests = Pest.objects.filter(name__in=pest_names)
+    priority_diseases = Disease.objects.filter(name__in=disease_names)
+    recommended_parts = PlantPart.objects.filter(name__in=part_names)
 
-        # Get recommended parts to check (based on the season used in calculation)
-        recommended_parts = get_recommended_plant_parts(
-            season=recommendation_season,
-            plant_type=farm.plant_type
-        )
-    else:
-        messages.info(request, "Plant type not set for this farm, cannot determine specific pests/diseases/parts.")
-
-    # Get recommended frequency and next due date
-    surveillance_frequency = get_surveillance_frequency(recommendation_season, farm)
-
-    # Get recommendations from service
-    surveillance_recommendations = get_surveillance_recommendations(farm)
+    # --- Other Info ---
+    # TODO: Refactor frequency logic if needed, maybe based on stage?
+    surveillance_frequency = get_surveillance_frequency(current_stage, farm) 
+    last_surveillance_date = farm.last_surveillance_date()
+    next_due_date = farm.next_due_date() # Uses simple 7-day logic for now
+    surveillance_records = farm.surveillance_records.order_by('-date_performed')[:5] # Get latest 5 records
     
-    # Get surveillance records
-    records, _ = get_farm_surveillance_records(farm_id, request.user, limit=5)
-    
-    # Build context from all gathered data
     context = {
         'farm': farm,
-        'calculation_results': calculation_results,
-        'surveillance_records': records,
-        'default_season_used': recommendation_season,
-        'default_confidence_used': calculation_results.get('confidence_level_percent', default_confidence),
+        'current_stage': current_stage, # Pass stage name
+        'calculation_results': calculation_results, # Results based on current stage & default confidence
+        'surveillance_records': surveillance_records,
         'priority_pests': priority_pests,
         'priority_diseases': priority_diseases,
-        'recommended_parts': recommended_parts,
+        'recommended_parts': recommended_parts, 
         'surveillance_frequency': surveillance_frequency,
-        'last_surveillance_date': surveillance_recommendations['last_surveillance_date'],
-        'next_due_date': surveillance_recommendations['next_due_date'],
-        'farm_boundary_json': farm.boundary  # Pass boundary data directly (should be JSON serializable)
+        'last_surveillance_date': last_surveillance_date,
+        'next_due_date': next_due_date,
+        'farm_boundary_json': farm.boundary
     }
-    
-    # Add debug message
-    if not calculation_results.get('error'):
-        messages.info(request, f"Using calculation with {calculation_results.get('required_plants_to_survey')} plants to survey.")
     
     return render(request, 'core/farm_detail.html', context)
 
@@ -279,77 +228,83 @@ def delete_farm_view(request, farm_id):
 
 @login_required
 def calculator_view(request):
-    """Calculate surveillance requirements based on user inputs."""
+    """Calculate surveillance requirements based on user inputs (confidence only)."""
     grower = request.user.grower_profile
     calculation_results = None
     selected_farm_instance = None
     form_submitted = False
+    current_stage = None # Initialize stage
     
     # Get initial farm_id from query params if available
     initial_farm_id = request.GET.get('farm')
     
-    # Check if there's actual form submission (all parameters present)
-    if request.GET and 'farm' in request.GET and 'confidence_level' in request.GET and 'season' in request.GET:
+    # Always determine current stage and p regardless of submission
+    current_stage, current_prevalence_p = determine_stage_and_p()
+    
+    # Check if form is submitted (farm and confidence present)
+    if request.GET and 'farm' in request.GET and 'confidence_level' in request.GET:
         form_submitted = True
-        form = CalculatorForm(grower, request.GET)
+        form = CalculatorForm(grower, request.GET) # Pass grower and GET data
         
         if form.is_valid():
             selected_farm_instance = form.cleaned_data['farm']
             confidence = form.cleaned_data['confidence_level']
-            season = form.cleaned_data['season']
             
-            # Calculate surveillance effort using service
+            # Calculate surveillance effort using AUTO stage/p and SELECTED confidence
             calculation_results = calculate_surveillance_effort(
                 farm=selected_farm_instance,
                 confidence_level_percent=confidence,
-                season=season
+                prevalence_p=current_prevalence_p # Use auto-determined prevalence
             )
             
-            # Save calculation to database for historical record
+            # Save calculation to database (if valid result)
             if not calculation_results.get('error') and selected_farm_instance:
-                calc = save_calculation_to_database(
-                    calculation_results, 
-                    selected_farm_instance,
-                    request.user
-                )
+                SurveillanceCalculation.objects.filter(
+                    farm=selected_farm_instance, 
+                    is_current=True
+                ).update(is_current=False)
                 
-                if calc:
-                    messages.success(
-                        request, 
-                        f"Surveillance calculation for {selected_farm_instance.name} saved: "
-                        f"{calculation_results['required_plants_to_survey']} plants."
-                    )
+                surveillance_calc = SurveillanceCalculation(
+                    farm=selected_farm_instance,
+                    created_by=request.user,
+                    season=current_stage, # Store the auto-determined stage
+                    confidence_level=confidence,
+                    population_size=calculation_results['N'],
+                    prevalence_percent=Decimal(str(calculation_results['prevalence_p'])) * 100,
+                    margin_of_error=Decimal(str(calculation_results['margin_of_error'])) * 100,
+                    required_plants=calculation_results['required_plants_to_survey'],
+                    percentage_of_total=Decimal(str(calculation_results.get('percentage_of_total', 0))),
+                    survey_frequency=calculation_results.get('survey_frequency'),
+                    is_current=True
+                )
+                surveillance_calc.save()
+                messages.success(
+                    request, 
+                    f"Surveillance calculation saved for {selected_farm_instance.name} ({current_stage} stage): {calculation_results['required_plants_to_survey']} plants at {confidence}% confidence."
+                )
         else:
-            # If form is invalid after submission, show errors
+            # Show form errors
             for field, errors in form.errors.items():
                 for error in errors:
                     messages.error(request, f"{form.fields[field].label}: {error}")
     
-    # Initialize form with default farm if NOT submitting and farm ID is in URL
+    # Initialize form
     elif initial_farm_id and not form_submitted:
         try:
             initial_farm = Farm.objects.get(id=initial_farm_id, owner=grower)
-            # For new form, use defaults from the farm
-            default_season = initial_farm.current_season()
-            form = CalculatorForm(
-                grower, 
-                initial={
-                    'farm': initial_farm,
-                    'confidence_level': 95,
-                    'season': default_season
-                }
-            )
+            form = CalculatorForm(grower, initial={'farm': initial_farm, 'confidence_level': DEFAULT_CONFIDENCE})
         except Farm.DoesNotExist:
-            form = CalculatorForm(grower)
+            form = CalculatorForm(grower) # Initialize empty if initial farm not found
     else:
-        # Empty form with no defaults
-        form = CalculatorForm(grower)
+        form = CalculatorForm(grower) # Initialize empty if no initial farm ID
 
     context = {
         'form': form,
         'selected_farm': selected_farm_instance,
         'calculation_results': calculation_results,
         'form_submitted': form_submitted,
+        'current_stage': current_stage, # Pass stage to template
+        'current_prevalence_p': current_prevalence_p * 100 # Pass prevalence as percentage
     }
     
     return render(request, 'core/calculator.html', context)
