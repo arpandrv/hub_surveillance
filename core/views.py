@@ -184,7 +184,8 @@ def farm_detail_view(request, farm_id):
         'recommended_parts': recommended_parts,
         'surveillance_frequency': surveillance_frequency,
         'last_surveillance_date': last_surveillance_date,
-        'next_due_date': next_due_date
+        'next_due_date': next_due_date,
+        'farm_boundary_json': farm.boundary # Pass boundary data directly (should be JSON serializable)
     }
     
     # Add debug message

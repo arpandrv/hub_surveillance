@@ -2,6 +2,20 @@
 
 {% block title %}Farm Details: {{ farm.name }}{% endblock %}
 
+{% block head_extra %}
+{# Add Leaflet CSS #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<style>
+  #map {
+    height: 400px; /* Adjust height as needed */
+    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-top: 15px;
+  }
+</style>
+{% endblock head_extra %}
+
 {% block heading %}{# No main heading needed here #}{% endblock %}
 
 {% block content %}
@@ -10,14 +24,22 @@
     <div class="card-header text-white d-flex justify-content-between align-items-center" style="background-color: #0d6efd;">
         <h4 class="mb-0">{{ farm.name }}</h4>
         <div>
-            {# Placeholder Map Boundary button #}
-            <button type="button" class="btn btn-light btn-sm me-2" disabled>Map Boundary</button> 
+            {# Map Boundary button - will enable/use later #}
+            <button type="button" class="btn btn-light btn-sm me-2" id="toggleMapBtn" {% if not farm_boundary_json %}disabled{% endif %}>
+                 <i class="bi bi-map me-1"></i> Show/Hide Boundary Map
+            </button>
             <a href="{% url 'core:edit_farm' farm.id %}" class="btn btn-light btn-sm">Edit Farm</a>
         </div>
     </div>
     {# Farm Details Body #}
     <div class="card-body">
-        <div class="row">
+        {# Map Container - Initially hidden #}
+        <div id="mapContainer" style="display: none;">
+             <div id="map"></div>
+             <p class="text-muted small mt-1">Farm boundary shown from Geoscape data.</p>
+        </div>
+
+        <div class="row mt-3"> {# Added margin-top #}
             <div class="col-md-6">
                 <p><strong>Region:</strong> {{ farm.region.name|default:"Not set" }}</p>
                 <p><strong>Climate Zone:</strong> {{ farm.region.climate_zone|default:"Not set" }}</p>
@@ -205,3 +227,82 @@
 {# Removed old bottom links #}
 
 {% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{# Add Leaflet JS #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const boundaryData = {{ farm_boundary_json|safe }};
+    const mapContainer = document.getElementById('mapContainer');
+    const toggleMapBtn = document.getElementById('toggleMapBtn');
+    let map = null; // Variable to hold the map instance
+    let boundaryLayer = null;
+
+    // Only proceed if boundary data exists
+    if (boundaryData && toggleMapBtn) {
+        toggleMapBtn.addEventListener('click', function() {
+            // Toggle visibility
+            const isHidden = mapContainer.style.display === 'none';
+            mapContainer.style.display = isHidden ? 'block' : 'none';
+
+            // Initialize map only if it's visible and not already initialized
+            if (isHidden && !map) {
+                console.log("Initializing Leaflet map.");
+                try {
+                    // --- Initialize Map ---
+                    map = L.map('map').setView([-12.46, 130.84], 10); // Default view (e.g., Darwin)
+
+                    // --- Add Tile Layer (using OpenStreetMap) ---
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    }).addTo(map);
+
+                    // --- Add GeoJSON Boundary ---
+                    console.log("Adding boundary data to map:", boundaryData);
+                    boundaryLayer = L.geoJSON(boundaryData, {
+                        style: function (feature) {
+                            return {color: "#ff7800", weight: 2, opacity: 0.8, fillOpacity: 0.1};
+                        }
+                    }).addTo(map);
+
+                    // --- Fit map to boundary --- 
+                    if (boundaryLayer.getBounds().isValid()) {
+                        map.fitBounds(boundaryLayer.getBounds().pad(0.1)); // Add slight padding
+                        console.log("Map fitted to boundary bounds.");
+                    } else {
+                        console.warn("Boundary layer bounds are not valid, cannot fit map.");
+                    }
+
+                    // Adjust button text
+                    toggleMapBtn.innerHTML = '<i class="bi bi-map-fill me-1"></i> Hide Boundary Map';
+
+                } catch (e) {
+                    console.error("Error initializing Leaflet map or adding GeoJSON:", e);
+                    mapContainer.innerHTML = '<div class="alert alert-danger">Could not load map boundary.</div>';
+                }
+            } else if (isHidden && map) {
+                 // Map exists but was hidden, ensure bounds are still correct
+                 map.invalidateSize(); // Important after showing a hidden map
+                 if (boundaryLayer && boundaryLayer.getBounds().isValid()){
+                      map.fitBounds(boundaryLayer.getBounds().pad(0.1));
+                 }
+                 toggleMapBtn.innerHTML = '<i class="bi bi-map-fill me-1"></i> Hide Boundary Map';
+            } else {
+                 // Hiding the map
+                 toggleMapBtn.innerHTML = '<i class="bi bi-map me-1"></i> Show Boundary Map';
+            }
+        });
+
+    } else {
+        console.log("No boundary data found or map button missing.");
+        if (toggleMapBtn) {
+            toggleMapBtn.disabled = true; // Ensure button is disabled if no data
+        }
+    }
+});
+</script>
+{% endblock extra_js %}
