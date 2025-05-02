@@ -461,6 +461,19 @@ def record_surveillance_view(request, farm_id):
         messages.error(request, error)
         return redirect('core:home')
     
+    # Get current seasonal recommendations for GET request display
+    stage_info = get_seasonal_stage_info() # Use current month by default
+    recommended_part_names = stage_info.get('part_names', [])
+    recommended_pest_names = stage_info.get('pest_names', [])
+    recommended_disease_names = stage_info.get('disease_names', [])
+    current_stage_name = stage_info.get('stage_name', 'Unknown')
+    current_prevalence_p = stage_info.get('prevalence_p') # Needed for fallback calculation
+    
+    # Fetch the actual model instances for recommendations to potentially highlight in template
+    recommended_parts_qs = PlantPart.objects.filter(name__in=recommended_part_names)
+    recommended_pests_qs = Pest.objects.filter(name__in=recommended_pest_names)
+    recommended_diseases_qs = Disease.objects.filter(name__in=recommended_disease_names)
+
     if request.method == 'POST':
         form = SurveillanceRecordForm(request.POST, farm=farm)
         if form.is_valid():
@@ -470,7 +483,8 @@ def record_surveillance_view(request, farm_id):
                 'plants_surveyed': form.cleaned_data['plants_surveyed'],
                 'notes': form.cleaned_data['notes'],
                 'plant_parts_checked': form.cleaned_data['plant_parts_checked'],
-                'pests_found': form.cleaned_data['pests_found']
+                'pests_found': form.cleaned_data['pests_found'],
+                'diseases_found': form.cleaned_data.get('diseases_found') # Use .get() in case field isn't always present
             }
             
             # Use service to create record
@@ -478,50 +492,78 @@ def record_surveillance_view(request, farm_id):
             
             if error:
                 messages.error(request, error)
-                return render(request, 'core/record_surveillance.html', {'form': form, 'farm': farm})
+                # Pass recommendations to context even on POST error
+                context = {
+                    'form': form, 
+                    'farm': farm,
+                    'recommended_parts': recommended_parts_qs,
+                    'recommended_pests': recommended_pests_qs,
+                    'recommended_diseases': recommended_diseases_qs,
+                    'current_stage_name': current_stage_name
+                }
+                return render(request, 'core/record_surveillance.html', context)
             
-            # Check if pests were found for appropriate messaging
-            if record.pests_found.exists():
-                messages.warning(
-                    request, 
-                    f"Surveillance recorded with {record.pests_found.count()} pest(s) found. Consider treatment options."
-                )
+            # Check if pests or diseases were found for appropriate messaging
+            pests_found_count = record.pests_found.count()
+            diseases_found_count = record.diseases_found.count()
+            
+            if pests_found_count > 0 or diseases_found_count > 0:
+                msg = f"Surveillance recorded."
+                if pests_found_count > 0:
+                    msg += f" {pests_found_count} pest(s) found."
+                if diseases_found_count > 0:
+                     msg += f" {diseases_found_count} disease(s) found."
+                msg += " Consider treatment options."
+                messages.warning(request, msg)
             else:
-                messages.success(request, "Surveillance recorded successfully. No pests found.")
+                messages.success(request, "Surveillance recorded successfully. No pests or diseases found.")
                 
             return redirect('core:farm_detail', farm_id=farm.id)
-    else:
+    else: # GET request
         # Check if we have a saved calculation to use for initial plants value
+        initial_data = {}
         try:
             saved_calculation = SurveillanceCalculation.objects.filter(
                 farm=farm,
                 is_current=True
-            ).first()
-            
-            initial_data = {}
-            if saved_calculation:
-                initial_data['plants_surveyed'] = saved_calculation.required_plants
+            ).latest('date_created') # Use latest()
+            initial_data['plants_surveyed'] = saved_calculation.required_plants
+            print(f"Record View: Using saved calculation plants: {saved_calculation.required_plants}")
+        except SurveillanceCalculation.DoesNotExist:
+            # No saved calculation found, calculate using default confidence and current stage prevalence
+            print(f"Record View: No saved calculation. Calculating fallback...")
+            if current_prevalence_p is not None and farm.total_plants() is not None:
+                 try:
+                    calculation = calculate_surveillance_effort(
+                        farm=farm, 
+                        confidence_level_percent=DEFAULT_CONFIDENCE, # Use default 95%
+                        prevalence_p=current_prevalence_p
+                    )
+                    if not calculation.get('error'):
+                        initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
+                        print(f"Record View: Calculated fallback plants: {initial_data['plants_surveyed']}")
+                    else:
+                        print(f"Record View: Fallback calculation error: {calculation.get('error')}")
+                 except Exception as calc_err:
+                      print(f"Record View: Error during fallback calculation: {calc_err}")      
             else:
-                # No saved calculation found, use default
-                default_season = farm.current_season()
-                calculation = calculate_surveillance_effort(farm, 95, default_season)
-                
-                if not calculation.get('error'):
-                    initial_data['plants_surveyed'] = calculation.get('required_plants_to_survey')
+                print(f"Record View: Cannot calculate fallback (prevalence={current_prevalence_p}, total_plants={farm.total_plants()})")
                     
         except Exception as e:
-            # If anything goes wrong, initialize without plants_surveyed
+            # If anything else goes wrong, initialize without plants_surveyed
+            print(f"Record View: Error fetching saved calculation or calculating fallback: {e}")
             initial_data = {}
             
         form = SurveillanceRecordForm(farm=farm, initial=initial_data)
     
-    # Get recommended plant parts to check for this season
-    recommendations = get_surveillance_recommendations(farm)
-    
+    # Pass recommendations to the template context
     context = {
         'form': form,
         'farm': farm,
-        'recommended_parts': recommendations['recommended_parts']
+        'recommended_parts': recommended_parts_qs,
+        'recommended_pests': recommended_pests_qs,
+        'recommended_diseases': recommended_diseases_qs,
+        'current_stage_name': current_stage_name
     }
     
     return render(request, 'core/record_surveillance.html', context)
