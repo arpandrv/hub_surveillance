@@ -181,6 +181,51 @@ class Disease(models.Model):
         return queryset[:3]
 
 
+class SeasonalStage(models.Model):
+    """
+    Represents a specific stage in the farming cycle, mapping months 
+    to expected pests, diseases, parts to check, and prevalence.
+    This replaces the hardcoded logic in season_utils.py.
+    """
+    name = models.CharField(
+        max_length=100, 
+        unique=True, 
+        help_text="Descriptive name for the stage (e.g., 'Flowering', 'Early Fruit Development')"
+    )
+    # Store months as a comma-separated string for simple querying
+    # Example: "6,7,8" for June-August
+    # Example: "11,12,1,2,3,4" for Nov-Apr (handled by query)
+    months = models.CharField(
+        max_length=50, 
+        help_text="Comma-separated list of month numbers (1-12) this stage applies to. Handles year rollover."
+    )
+    prevalence_p = models.DecimalField(
+        max_digits=4, 
+        decimal_places=3, 
+        help_text="Estimated pest/disease prevalence (e.g., 0.05 for 5%) during this stage, used in calculations."
+    )
+    active_pests = models.ManyToManyField(
+        Pest, 
+        related_name='seasonal_stages',
+        blank=True,
+        help_text="Pests that are typically active during this stage."
+    )
+    active_diseases = models.ManyToManyField(
+        Disease, 
+        related_name='seasonal_stages',
+        blank=True,
+        help_text="Diseases that are typically active during this stage."
+    )
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['id'] # Or define a specific order if needed
+        verbose_name = "Seasonal Stage Mapping"
+        verbose_name_plural = "Seasonal Stage Mappings"
+
+
 class Farm(models.Model):
     """
     Represents a farm managed by a grower.

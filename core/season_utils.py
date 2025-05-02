@@ -1,17 +1,31 @@
 import datetime
+from decimal import Decimal # Import Decimal
+from django.db.models import Q # Import Q for query
+from .models import SeasonalStage, Pest, Disease, PlantPart # Import necessary models
 
-def determine_stage_and_p(override_month=None):
+def get_seasonal_stage_info(override_month=None):
     """
-    Determines the farming stage and expected prevalence (p) 
-    based on the provided month (or current month if not provided).
-    
+    Determines the farming stage and associated data (prevalence, pests, diseases)
+    by querying the SeasonalStage model based on the current or overridden month.
+    Dynamically determines the recommended plant parts based on the parts affected 
+    by the active pests and diseases for the found stage.
+
     Args:
         override_month (int, optional): A month number (1-12) to use 
                                         instead of the current system month. 
                                         Defaults to None.
 
     Returns:
-        tuple: (stage_name: str, prevalence_p: float, month_used: int)
+        dict: {
+            'stage_name': str or None, 
+            'prevalence_p': Decimal or None,
+            'pest_names': list[str], 
+            'disease_names': list[str], 
+            'part_names': list[str], # Dynamically generated
+            'month_used': int
+        }
+        Returns None for stage_name and prevalence_p, and empty lists for names
+        if no matching stage is found in the database.
     """
     month_to_use = None
     if override_month is not None:
@@ -19,83 +33,73 @@ def determine_stage_and_p(override_month=None):
             month_val = int(override_month)
             if 1 <= month_val <= 12:
                 month_to_use = month_val
-                print(f"DEBUG: Using overridden month: {month_to_use}") # Debug print
+                print(f"DEBUG (get_seasonal_stage_info): Using overridden month: {month_to_use}")
             else:
-                print(f"Warning: Invalid override_month ({override_month}). Using current month.")
+                print(f"Warning (get_seasonal_stage_info): Invalid override_month ({override_month}). Using current month.")
         except (ValueError, TypeError):
-            print(f"Warning: Could not parse override_month ({override_month}). Using current month.")
+            print(f"Warning (get_seasonal_stage_info): Could not parse override_month ({override_month}). Using current month.")
 
     # If override wasn't valid or provided, use current system month
     if month_to_use is None:
         month_to_use = datetime.datetime.now().month
-        # print(f"DEBUG: Using current system month: {month_to_use}") # Optional debug
+        # print(f"DEBUG (get_seasonal_stage_info): Using current system month: {month_to_use}")
 
-    # Mapping based on approach.md pseudocode logic
-    if 6 <= month_to_use <= 8: # June - August
-        stage, p = "Flowering", 0.05
-    elif 9 <= month_to_use <= 12: # September - December
-        stage, p = "Fruit Development", 0.07
-    elif 1 <= month_to_use <= 4: # January - April 
-        stage, p = "Wet Season", 0.10
-    elif month_to_use == 5: # May
-        stage, p = "Dry Season", 0.02
-    else:
-        # Fallback or default case if month logic is somehow missed (shouldn't happen with validation)
-        print(f"Warning: Could not determine stage for month {month_to_use}. Defaulting to Wet Season.")
-        stage, p = "Wet Season", 0.10 
+    current_stage = None
+    try:
+        # Find stages where the current month number is in the comma-separated 'months' string.
+        stages = SeasonalStage.objects.filter(
+            Q(months__startswith=f"{month_to_use},") | # Starts with month,
+            Q(months__endswith=f",{month_to_use}") |   # Ends with ,month
+            Q(months__contains=f",{month_to_use},") | # Contains ,month,
+            Q(months=str(month_to_use))              # Is exactly month (for single-month stages)
+        ).prefetch_related('active_pests__affects_plant_parts', 'active_diseases__affects_plant_parts') # Prefetch related data
         
-    return stage, p, month_to_use # Return the month actually used
+        if stages.exists():
+            # In case a month is accidentally assigned to multiple stages, pick the first one found.
+            current_stage = stages.first()
+            print(f"DEBUG (get_seasonal_stage_info): Found stage '{current_stage.name}' for month {month_to_use}")
+        else:
+             print(f"Warning (get_seasonal_stage_info): No SeasonalStage found in database for month {month_to_use}.")
 
-def get_active_threats_and_parts(stage):
-    """
-    Returns lists of active pest names, disease names, and plant part names
-    based on the provided farming stage.
-    
-    Args:
-        stage (str): The current farming stage (e.g., "Flowering").
-        
-    Returns:
-        dict: {
-            "pest_names": list[str], 
-            "disease_names": list[str], 
-            "part_names": list[str]
-        }
-    """
-    pest_disease_mapping = {
-        "Flowering": {
-            "pests": ["Mango Leaf Hopper", "Mango Tip Borer"],
-            "diseases": ["Powdery Mildew", "Mango Malformation"]
-        },
-        "Fruit Development": {
-            "pests": ["Mango Fruit Fly", "Mango Seed Weevil", "Mango Scale Insect"],
-            "diseases": ["Anthracnose", "Bacterial Black Spot", "Stem End Rot"]
-        },
-        "Wet Season": {
-            # Combined from approach.md notes
-            "pests": ["Mango Fruit Fly", "Mango Seed Weevil", "Mango Tip Borer", "Mango Scale Insect"], 
-            "diseases": ["Anthracnose", "Bacterial Black Spot"]
-        },
-        "Dry Season": {
-            "pests": ["Mango Leaf Hopper", "Mango Tip Borer", "Mango Scale Insect"],
-            "diseases": ["Powdery Mildew", "Mango Malformation"]
-        }
-    }
-    
-    plant_part_mapping = {
-        "Flowering": ["Flowers", "Leaves", "Branches"],
-        "Fruit Development": ["Fruits", "Leaves", "Branches"],
-        # Assuming 'Wet Season' from mapping means peak rain focus
-        "Wet Season": ["Fruits", "Leaves", "Stems"], 
-        # Assuming 'Dry Season' from mapping means non-flowering focus
-        "Dry Season": ["Stems", "Branches"] 
+    except Exception as e:
+        # Catch potential database errors
+        print(f"Error (get_seasonal_stage_info): Database query failed - {e}")
+        current_stage = None
+
+    # Prepare the result dictionary
+    result = {
+        'stage_name': None,
+        'prevalence_p': None,
+        'pest_names': [],
+        'disease_names': [],
+        'part_names': [], # Will be populated dynamically
+        'month_used': month_to_use
     }
 
-    # Get data for the current stage, default to empty lists if stage not found
-    threats = pest_disease_mapping.get(stage, {"pests": [], "diseases": []})
-    parts = plant_part_mapping.get(stage, [])
-    
-    return {
-        "pest_names": threats["pests"],
-        "disease_names": threats["diseases"],
-        "part_names": parts
-    } 
+    if current_stage:
+        result['stage_name'] = current_stage.name
+        result['prevalence_p'] = current_stage.prevalence_p
+        
+        # Get pest and disease names
+        active_pests = current_stage.active_pests.all()
+        active_diseases = current_stage.active_diseases.all()
+        result['pest_names'] = list(active_pests.values_list('name', flat=True))
+        result['disease_names'] = list(active_diseases.values_list('name', flat=True))
+
+        # --- Dynamically determine recommended parts --- # MODIFIED SECTION
+        recommended_parts_set = set()
+        
+        # Collect parts affected by active pests
+        for pest in active_pests:
+            for part in pest.affects_plant_parts.all():
+                recommended_parts_set.add(part.name)
+                
+        # Collect parts affected by active diseases
+        for disease in active_diseases:
+            for part in disease.affects_plant_parts.all():
+                recommended_parts_set.add(part.name)
+                
+        result['part_names'] = sorted(list(recommended_parts_set)) # Convert set to sorted list
+        # --- End Dynamic Part Determination ---
+
+    return result 

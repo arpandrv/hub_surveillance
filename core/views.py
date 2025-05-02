@@ -10,6 +10,8 @@ import json
 from django.conf import settings
 import requests
 from decimal import Decimal
+from datetime import datetime
+import pprint
 
 from .forms import (
     SignUpForm, FarmForm, SurveillanceRecordForm, 
@@ -43,7 +45,7 @@ from .services.boundary_service import (
 )
 
 # Import new utils
-from .season_utils import determine_stage_and_p, get_active_threats_and_parts 
+from .season_utils import get_seasonal_stage_info
 # Import updated calculation function (assuming it's in calculations.py)
 from .calculations import calculate_surveillance_effort, get_surveillance_frequency, Z_SCORES, DEFAULT_CONFIDENCE
 
@@ -99,9 +101,47 @@ def farm_detail_view(request, farm_id):
     print(f"--- Entering farm_detail_view for farm_id: {farm_id} ---")
     farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
     
-    # --- Determine Current Stage and Prevalence --- 
-    current_stage, current_prevalence_p, _ = determine_stage_and_p()
-    print(f"Farm {farm.id}: Current Stage='{current_stage}', Prevalence={current_prevalence_p}") # Debug
+    # --- Handle Debug Month Override ---
+    debug_month_override = None
+    debug_month_str = request.GET.get('debug_month')
+    if debug_month_str:
+        print(f"  DEBUG: Raw debug_month_str = '{debug_month_str}' (Type: {type(debug_month_str)})")
+        cleaned_month_str = debug_month_str.strip()
+        print(f"  DEBUG: Cleaned debug_month_str = '{cleaned_month_str}' (Type: {type(cleaned_month_str)})")
+        
+        try:
+            print(f"  DEBUG: Attempting int('{cleaned_month_str}')...")
+            month_val = int(cleaned_month_str)
+            print(f"  DEBUG: int() conversion successful: month_val = {month_val} (Type: {type(month_val)})")
+
+            if 1 <= month_val <= 12:
+                debug_month_override = month_val
+                print(f"Farm Detail: Using debug_month override: {debug_month_override}")
+                messages.info(request, f"Displaying farm details based on overridden month: {datetime.date(1900, debug_month_override, 1).strftime('%B')}.")
+            else:
+                 print(f"  DEBUG: month_val ({month_val}) is not between 1 and 12.")
+                 messages.warning(request, f"Invalid debug month ({cleaned_month_str}) ignored. Using current system month.")
+        except (ValueError, TypeError) as e:
+             print(f"  DEBUG: ERROR during int() conversion: {e}")
+             messages.warning(request, f"Could not parse debug month ('{cleaned_month_str}') ignored. Using current system month.")
+        except Exception as e:
+             print(f"  DEBUG: UNEXPECTED ERROR during debug month processing: {e}")
+             messages.warning(f"An unexpected error occurred processing debug month ('{cleaned_month_str}') ignored. Using current system month.")
+
+    # --- Determine Current Stage Info (using potential override) ---
+    stage_info = get_seasonal_stage_info(override_month=debug_month_override)
+    print(f"\nDEBUG (farm_detail_view): stage_info received from util = {stage_info}") 
+    
+    current_stage = stage_info['stage_name']
+    current_prevalence_p = stage_info['prevalence_p']
+    month_used_for_stage = stage_info['month_used']
+    pest_names = stage_info['pest_names']
+    disease_names = stage_info['disease_names']
+    part_names = stage_info['part_names']
+
+    print(f"DEBUG (farm_detail_view): Unpacked values: \n  stage='{current_stage}', \n  p={current_prevalence_p}, \n  month={month_used_for_stage}, \n  pests={pest_names}, \n  diseases={disease_names}, \n  parts={part_names}") 
+
+    print(f"Farm {farm.id}: Stage based on Month {month_used_for_stage}='{current_stage}', Prevalence={current_prevalence_p}") # Debug
     
     # --- Get or Calculate Sample Size for Display ---
     calculation_results = None
@@ -130,16 +170,22 @@ def farm_detail_view(request, farm_id):
         print(f"Farm {farm.id}: No saved calculation found (DoesNotExist). Calculating with default confidence.") # MODIFIED
         # Fallback: Calculate using default confidence if no saved record exists
         display_confidence = DEFAULT_CONFIDENCE 
-        calculation_results = calculate_surveillance_effort(
-            farm=farm,
-            confidence_level_percent=display_confidence,
-            prevalence_p=current_prevalence_p
-        )
-        # ADDED check if fallback calculation resulted in error
-        if calculation_results.get('error'):
-             print(f"Farm {farm.id}: Fallback calculation resulted in error: {calculation_results['error']}")
+        # Ensure we have a valid prevalence_p for calculation
+        if current_prevalence_p is not None:
+            calculation_results = calculate_surveillance_effort(
+                farm=farm,
+                confidence_level_percent=display_confidence,
+                prevalence_p=current_prevalence_p # Use prevalence from DB stage info
+            )
+            # ADDED check if fallback calculation resulted in error
+            if calculation_results.get('error'):
+                 print(f"Farm {farm.id}: Fallback calculation resulted in error: {calculation_results['error']}")
+            else:
+                 print(f"Farm {farm.id}: Fallback calculation successful.")
         else:
-             print(f"Farm {farm.id}: Fallback calculation successful.")
+            # Handle case where prevalence couldn't be determined (no stage found)
+            print(f"Farm {farm.id}: Cannot calculate fallback - prevalence_p is None (likely no stage found for month {month_used_for_stage})")
+            calculation_results = {'error': f'Cannot calculate recommendations: No seasonal stage found for the current month ({month_used_for_stage}). Please define stages in admin.'}
             
     except Exception as e:
         # Handle other potential errors during fetch/mapping
@@ -149,25 +195,33 @@ def farm_detail_view(request, farm_id):
     # Ensure calculation_results is not None if calculation failed
     if calculation_results is None:
         print(f"Farm {farm.id}: calculation_results was None after try/except block. Setting error.") # ADDED
-        calculation_results = {'error': 'Could not determine surveillance recommendations.'}
+        # Ensure error message reflects potential stage issue if prevalence was None
+        error_msg = 'Could not determine surveillance recommendations.'
+        if current_prevalence_p is None:
+            error_msg = f'Cannot calculate recommendations: No seasonal stage found for the current month ({month_used_for_stage}). Please define stages in admin.'
+        calculation_results = {'error': error_msg}
         
     print(f"Farm {farm.id}: Final Calculation Results for display={calculation_results}") # Debug
 
     # --- Get Active Threats and Parts for the Current Stage ---
-    threats_and_parts = get_active_threats_and_parts(current_stage)
-    pest_names = threats_and_parts['pest_names']
-    disease_names = threats_and_parts['disease_names']
-    part_names = threats_and_parts['part_names']
-    print(f"Farm {farm.id}: Active Pests={pest_names}, Diseases={disease_names}, Parts={part_names}") # Debug
+    print(f"Farm {farm.id}: Active Pests={pest_names}, Diseases={disease_names}, Parts={part_names} for stage '{current_stage}'") # Debug
 
     # --- Fetch corresponding Model objects --- 
+    print(f"DEBUG (farm_detail_view): Filtering Pest model with names: {pest_names}") 
     priority_pests = Pest.objects.filter(name__in=pest_names)
+    print(f"DEBUG (farm_detail_view): Found priority_pests QuerySet: {priority_pests}") 
+
+    print(f"DEBUG (farm_detail_view): Filtering Disease model with names: {disease_names}") 
     priority_diseases = Disease.objects.filter(name__in=disease_names)
+    print(f"DEBUG (farm_detail_view): Found priority_diseases QuerySet: {priority_diseases}") 
+
+    print(f"DEBUG (farm_detail_view): Filtering PlantPart model with names: {part_names}") 
     recommended_parts = PlantPart.objects.filter(name__in=part_names)
+    print(f"DEBUG (farm_detail_view): Found recommended_parts QuerySet: {recommended_parts}") 
 
     # --- Other Info ---
     # TODO: Refactor frequency logic if needed, maybe based on stage?
-    surveillance_frequency = get_surveillance_frequency(current_stage, farm) 
+    surveillance_frequency = get_surveillance_frequency(current_stage, farm) # Still uses stage name, might need update if frequency depends on DB stage
     last_surveillance_date = farm.last_surveillance_date()
     next_due_date = farm.next_due_date() # Uses simple 7-day logic for now
     surveillance_records = farm.surveillance_records.order_by('-date_performed')[:5] # Get latest 5 records
@@ -175,6 +229,7 @@ def farm_detail_view(request, farm_id):
     context = {
         'farm': farm,
         'current_stage': current_stage, # Pass stage name
+        'month_used_for_stage': month_used_for_stage, # Pass the month used for clarity
         'calculation_results': calculation_results, # Results based on current stage & default confidence
         'surveillance_records': surveillance_records,
         'priority_pests': priority_pests,
@@ -185,6 +240,9 @@ def farm_detail_view(request, farm_id):
         'next_due_date': next_due_date,
         'farm_boundary_json': farm.boundary
     }
+    print(f"\nDEBUG (farm_detail_view): Final context dictionary passed to template:")
+    pprint.pprint(context)
+    print("---")
     
     return render(request, 'core/farm_detail.html', context)
 
@@ -274,26 +332,27 @@ def calculator_view(request):
     calculation_results = None
     selected_farm_instance = None
     form_submitted = False
-    current_stage = None
-    current_prevalence_p = None
-    month_used_for_calc = None
     debug_month_override = None # Initialize
 
     # --- Handle Debug Month Override --- 
     debug_month_str = request.GET.get('debug_month')
     if debug_month_str:
+        cleaned_month_str = debug_month_str.strip()
         try:
-            month_val = int(debug_month_str)
+            month_val = int(cleaned_month_str)
             if 1 <= month_val <= 12:
                 debug_month_override = month_val
                 print(f"Calculator View: Using debug_month override: {debug_month_override}")
             else:
-                 messages.warning(request, f"Invalid debug month ({debug_month_str}) ignored. Using current system month.")
+                 messages.warning(request, f"Invalid debug month ({cleaned_month_str}) ignored. Using current system month.")
         except (ValueError, TypeError):
-             messages.warning(request, f"Could not parse debug month ({debug_month_str}) ignored. Using current system month.")
+             messages.warning(request, f"Could not parse debug month ({cleaned_month_str}) ignored. Using current system month.")
 
-    # Determine current stage, prevalence, and the month used (potentially overridden)
-    current_stage, current_prevalence_p, month_used_for_calc = determine_stage_and_p(override_month=debug_month_override)
+    # Determine current stage info (potentially overridden)
+    stage_info = get_seasonal_stage_info(override_month=debug_month_override)
+    current_stage = stage_info['stage_name']
+    current_prevalence_p = stage_info['prevalence_p']
+    month_used_for_calc = stage_info['month_used']
     
     # Get initial farm_id from query params if available
     initial_farm_id = request.GET.get('farm')
@@ -319,15 +378,21 @@ def calculator_view(request):
             
             # Only proceed if confidence was valid or handled
             if not (calculation_results and calculation_results.get('error')):
-                # Calculate surveillance effort using stage/p (potentially from override) and SELECTED confidence
-                calculation_results = calculate_surveillance_effort(
-                    farm=selected_farm_instance,
-                    confidence_level_percent=confidence, # Pass the integer confidence
-                    prevalence_p=current_prevalence_p # Use stage-determined prevalence
-                )
-                
-                # Add the month used to the results dict for display
-                if calculation_results:
+                # Ensure we have a valid prevalence_p for calculation
+                if current_prevalence_p is not None:
+                    # Calculate surveillance effort using stage/p (from DB stage info) and SELECTED confidence
+                    calculation_results = calculate_surveillance_effort(
+                        farm=selected_farm_instance,
+                        confidence_level_percent=confidence, # Pass the integer confidence
+                        prevalence_p=current_prevalence_p # Use stage-determined prevalence
+                    )
+                else:
+                    # Handle case where prevalence couldn't be determined
+                    print(f"Calculator View: Cannot calculate - prevalence_p is None (likely no stage found for month {month_used_for_calc})")
+                    calculation_results = {'error': f'Calculation failed: No seasonal stage found for the current month ({month_used_for_calc}). Please define stages in admin.'}
+
+                # Add the month used to the results dict for display (only if calc didn't fail)
+                if calculation_results and not calculation_results.get('error'):
                      calculation_results['month_used'] = month_used_for_calc
                 
                 # Save calculation to database (if valid result)
@@ -340,22 +405,22 @@ def calculator_view(request):
                     surveillance_calc = SurveillanceCalculation(
                         farm=selected_farm_instance,
                         created_by=request.user,
-                        season=current_stage, # Store the auto-determined stage
+                        season=current_stage if current_stage else "Unknown", # Store the auto-determined stage name (or fallback)
                         confidence_level=confidence,
                         population_size=calculation_results['N'],
-                        prevalence_percent=Decimal(str(calculation_results['prevalence_p'])) * 100,
-                        margin_of_error=Decimal(str(calculation_results['margin_of_error'])) * 100,
+                        # Use Decimal directly from prevalence_p if available
+                        prevalence_percent=(current_prevalence_p * Decimal(100)) if current_prevalence_p is not None else Decimal('0.0'),
+                        margin_of_error=Decimal(str(calculation_results.get('margin_of_error', 0.05))) * 100, # Use default if not returned
                         required_plants=calculation_results['required_plants_to_survey'],
                         percentage_of_total=Decimal(str(calculation_results.get('percentage_of_total', 0))),
                         survey_frequency=calculation_results.get('survey_frequency'),
                         is_current=True,
-                        # Add notes field if you want to record the month used for debug?
-                        # notes=f"Calculation based on month: {month_used_for_calc}"
+                        # notes=f"Calculation based on month: {month_used_for_calc}" # Optional notes
                     )
                     surveillance_calc.save()
                     messages.success(
                         request, 
-                        f"Surveillance calculation saved for {selected_farm_instance.name} ({current_stage} stage based on month {month_used_for_calc}): {calculation_results['required_plants_to_survey']} plants at {confidence}% confidence."
+                        f"Surveillance calculation saved for {selected_farm_instance.name} ({current_stage or 'Unknown Stage'} based on month {month_used_for_calc}): {calculation_results['required_plants_to_survey']} plants at {confidence}% confidence."
                     )
         else:
             # Show form errors
@@ -378,8 +443,9 @@ def calculator_view(request):
         'selected_farm': selected_farm_instance,
         'calculation_results': calculation_results,
         'form_submitted': form_submitted,
-        'current_stage': current_stage, # Pass stage to template
-        'current_prevalence_p': current_prevalence_p * 100 if current_prevalence_p is not None else None, # Pass prevalence as percentage
+        'current_stage': current_stage, # Pass stage name (or None)
+        # Pass prevalence as percentage, handle None
+        'current_prevalence_p': float(current_prevalence_p * 100) if current_prevalence_p is not None else None, 
         'month_used_for_calc': month_used_for_calc # Pass month used
     }
     
