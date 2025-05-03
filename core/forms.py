@@ -2,10 +2,11 @@ from django import forms
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from decimal import Decimal
 
 from .models import (
     Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region,
-    SEASON_CHOICES, CONFIDENCE_CHOICES, Disease
+    SEASON_CHOICES, CONFIDENCE_CHOICES, Disease, Observation, ObservationImage
 )
 
 
@@ -135,84 +136,6 @@ class FarmForm(forms.ModelForm):
         return cleaned_data
 
 
-class SurveillanceRecordForm(forms.ModelForm):
-    """Form for creating and editing surveillance records."""
-    plant_parts_checked = forms.ModelMultipleChoiceField(
-        queryset=PlantPart.objects.all(),
-        widget=forms.CheckboxSelectMultiple,
-        required=False
-    )
-    pests_found = forms.ModelMultipleChoiceField(
-        queryset=Pest.objects.none(),
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-        label="Pests Found"
-    )
-    diseases_found = forms.ModelMultipleChoiceField(
-        queryset=Disease.objects.all(),
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-        label="Diseases Found"
-    )
-    notes = forms.CharField(widget=forms.Textarea(attrs={'rows': 3}), required=False)
-
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize form with a farm instance.
-        
-        Args:
-            farm: Farm instance to associate with record
-        """
-        self.farm = kwargs.pop('farm', None)  # Get farm from kwargs
-        super().__init__(*args, **kwargs)
-        if not self.farm:
-            # This should ideally not happen if view is correct,
-            # but good practice to handle it.
-            raise ValueError("Farm instance must be provided to SurveillanceRecordForm")
-
-    class Meta:
-        model = SurveillanceRecord
-        fields = [
-            'date_performed',
-            'plants_surveyed',
-            'plant_parts_checked',
-            'pests_found',
-            'diseases_found',
-            'notes'
-        ]
-        widgets = {
-            'date_performed': forms.DateTimeInput(attrs={
-                'type': 'datetime-local',
-                'value': timezone.now().strftime('%Y-%m-%dT%H:%M')
-            }),
-            'notes': forms.Textarea(attrs={'rows': 3}),
-        }
-
-    def clean_plants_surveyed(self):
-        """
-        Validate the number of plants surveyed.
-        
-        Returns:
-            Validated plants_surveyed value
-        """
-        plants_surveyed = self.cleaned_data.get('plants_surveyed')
-        total_plants = self.farm.total_plants()
-
-        if plants_surveyed is None:  # Handle case where field is empty
-            raise ValidationError("This field is required.")
-
-        if plants_surveyed < 0:
-            raise ValidationError("Number of plants surveyed cannot be negative.")
-
-        if total_plants is not None and plants_surveyed > total_plants:
-            raise ValidationError(
-                f"Number of plants surveyed ({plants_surveyed}) cannot exceed "
-                f"the total plants calculated for this farm ({total_plants})."
-            )
-
-        return plants_surveyed
-
-
 class UserEditForm(forms.ModelForm):
     """Form for editing user account details."""
     class Meta:
@@ -292,3 +215,46 @@ class CalculatorForm(forms.Form):
                 self.add_error('confidence_level', 'Please select a confidence level.')
 
         return cleaned_data
+
+
+class ObservationForm(forms.ModelForm):
+    """Form for recording a single observation point within a survey session."""
+    
+    # Use CheckboxSelectMultiple for better UI
+    pests_observed = forms.ModelMultipleChoiceField(
+        queryset=Pest.objects.all().order_by('name'),
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Pests Observed at this Location"
+    )
+    diseases_observed = forms.ModelMultipleChoiceField(
+        queryset=Disease.objects.all().order_by('name'),
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Diseases Observed at this Location"
+    )
+    notes = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False
+    )
+    # --- Reverted to Single Image Upload --- 
+    image = forms.ImageField( 
+        # Use default widget (ClearableFileInput)
+        required=False,
+        label="Upload Image (Optional)"
+    )
+
+    # Hidden fields for GPS - these will be populated by JavaScript
+    # We don't include them directly here as ModelForm fields, 
+    # as they aren't directly on the Observation model in this simple way.
+    # We will handle them in the API view when processing the AJAX request.
+    # latitude = forms.DecimalField(widget=forms.HiddenInput(), required=False)
+    # longitude = forms.DecimalField(widget=forms.HiddenInput(), required=False)
+    # gps_accuracy = forms.DecimalField(widget=forms.HiddenInput(), required=False)
+
+    class Meta:
+        model = Observation
+        # Fields included directly from the model that the user interacts with
+        # We exclude 'image' here because it's defined above and handled in the view
+        fields = ['pests_observed', 'diseases_observed', 'notes'] 
+        # 'latitude', 'longitude', 'gps_accuracy' will be added manually in the view/JS.

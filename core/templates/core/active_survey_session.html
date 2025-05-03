@@ -1,0 +1,469 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Active Survey: {{ farm.name }}{% endblock %}
+
+{% block heading %}Survey in Progress: {{ farm.name }}{% endblock %}
+
+{% block head_extra %}
+{# Add Leaflet CSS if we add a map later #}
+{# <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/> #}
+<style>
+  /* Basic styling for layout */
+  .observation-form-area {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: .375rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .progress-tracker {
+    margin-bottom: 1.5rem;
+  }
+</style>
+{% endblock head_extra %}
+
+{% block content %}
+<div class="row">
+
+  {# --- Left Column: Info & Progress --- #}
+  <div class="col-md-4">
+    {# Session Info Card #}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">
+           <i class="bi bi-info-circle me-1"></i> Session Details
+        </div>
+        <div class="card-body">
+            <p><strong>Farm:</strong> {{ farm.name }}</p>
+            <p><strong>Surveyor:</strong> {{ session.surveyor.username }}</p>
+            <p><strong>Started:</strong> {{ session.start_time|date:"M j, Y, P" }}</p>
+            <p><strong>Status:</strong> <span class="badge bg-warning text-dark">{{ session.get_status_display }}</span></p>
+        </div>
+    </div>
+
+    {# Progress Tracker #}
+    <div class="card mb-4 shadow-sm progress-tracker">
+        <div class="card-header bg-secondary text-white">
+            <i class="bi bi-graph-up me-1"></i> Progress
+        </div>
+        <div class="card-body">
+            {% with completed=completed_plants target=target_plants|default:0 pests=unique_pests_count diseases=unique_diseases_count %}
+            <p>Observations Recorded: <strong id="completed-obs-count">{{ completed }}</strong></p>
+            {% if target > 0 %}
+                <p>Target Observations: <strong>{{ target }}</strong></p>
+                 <div class="progress mb-3" role="progressbar" aria-label="Survey Progress" aria-valuenow="{{ completed }}" aria-valuemin="0" aria-valuemax="{{ target }}">
+                    <div class="progress-bar" style="width: {{ completion_percentage }}%;">
+                        {{ completed }}/{{ target }}
+                    </div>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-3">Target not set (no calculation found).</p>
+            {% endif %}
+            {# --- Display Unique Pest/Disease Counts --- #}
+            <p class="mb-1"><i class="bi bi-bug-fill text-danger me-1"></i> Unique Pests Found: <strong id="unique-pests-count">{{ pests }}</strong></p>
+            <p class="mb-0"><i class="bi bi-virus text-warning me-1"></i> Unique Diseases Found: <strong id="unique-diseases-count">{{ diseases }}</strong></p>
+            {% endwith %}
+        </div>
+    </div>
+
+    {# Recommendations Card #}
+    <div class="card border-info shadow-sm">
+        <div class="card-header bg-info text-white">
+            <i class="bi bi-stars me-1"></i> Stage Recommendations
+        </div>
+        <div class="card-body small">
+             <p class="text-muted mb-2">Current Stage: <strong>{{ current_stage_name|default:'Unknown' }}</strong></p>
+            {% if recommended_pests %}
+                <strong>Priority Pests:</strong>
+                <ul class="list-inline">{% for p in recommended_pests %}<li class="list-inline-item"><span class="badge bg-danger-subtle text-danger-emphasis">{{ p.name }}</span></li>{% endfor %}</ul>
+            {% endif %}
+            {% if recommended_diseases %}
+                <strong>Priority Diseases:</strong>
+                <ul class="list-inline">{% for d in recommended_diseases %}<li class="list-inline-item"><span class="badge bg-warning-subtle text-warning-emphasis">{{ d.name }}</span></li>{% endfor %}</ul>
+            {% endif %}
+        </div>
+    </div>
+  </div>
+
+  {# --- Right Column: Observation Form & List --- #}
+  <div class="col-md-8">
+    
+    {# Observation Recording Form Area #}
+    <div class="observation-form-area">
+        <h4><i class="bi bi-geo-alt-fill me-1"></i> Record New Observation</h4>
+        <hr>
+        
+        <div id="gps-status" class="alert alert-secondary small"> 
+            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> 
+            Acquiring GPS coordinates...
+        </div>
+        
+        {# Render the Observation Form #}
+        {% if observation_form %}
+            {# Add session_id to the form tag data attribute for easy JS access #}
+            <form id="observation-form" method="post" enctype="multipart/form-data" data-session-id="{{ session.session_id }}">
+                {% csrf_token %}
+                {# Hidden fields for GPS data #}
+                <input type="hidden" name="latitude" id="id_latitude">
+                <input type="hidden" name="longitude" id="id_longitude">
+                <input type="hidden" name="gps_accuracy" id="id_gps_accuracy">
+                
+                {# --- Revert to using as_p for simplicity --- #}
+                {{ observation_form.as_p }}
+
+                <button type="submit" id="save-observation-btn" class="btn btn-success" disabled>
+                     <i class="bi bi-check-lg me-1"></i> Save Observation at Current Location
+                </button>
+                <span id="save-status" class="ms-2"></span> {# For showing save status #}
+            </form>
+        {% else %}
+            <p class="text-danger">Observation form is not configured yet.</p>
+        {% endif %}
+        
+        <p class="text-danger small mt-2"><i class="bi bi-exclamation-triangle"></i> Save before moving for GPS accuracy!</p>
+    </div>
+
+    {# Finish Session Button #}
+    <div class="text-end mb-4">
+        <button id="finish-session-btn" class="btn btn-lg btn-primary" disabled>
+            <i class="bi bi-flag-fill me-1"></i> Finish Survey Session
+        </button>
+        <small class="d-block text-muted">(Requires {{ target_plants|default:0 }} observations)</small>
+    </div>
+
+    {# List of Previous Observations #}
+    <div class="card shadow-sm">
+        <div class="card-header bg-light">
+           <i class="bi bi-list-ul me-1"></i> 
+           Observations in this Session (<span id="observation-count">{{ observations.count }}</span>)
+        </div>
+        {# Add an ID to the list for easy JS targeting #}
+        <ul id="observation-list" class="list-group list-group-flush">
+            {% for obs in observations|slice:":10" %} {# Show latest 10 initially #}
+            {# Use include tag or duplicate structure here #}
+            <li class="list-group-item" data-observation-id="{{ obs.id }}">
+                <strong>Time:</strong> {{ obs.observation_time|date:"P" }} 
+                <small>({{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }})</small>
+                {% if obs.pests_observed.exists or obs.diseases_observed.exists %}
+                   - Findings: 
+                   {% for p in obs.pests_observed.all %}<span class="badge bg-danger">{{ p.name }}</span> {% endfor %}
+                   {% for d in obs.diseases_observed.all %}<span class="badge bg-warning text-dark">{{ d.name }}</span> {% endfor %}
+                {% endif %}
+                 {% if obs.notes %}<small class="d-block text-muted">Notes: {{ obs.notes|truncatechars:50 }}</small>{% endif %}
+                 {# Revert to checking first image #}
+                 {% with first_image=obs.images.first %}
+                    {% if first_image %}
+                        <div class="mt-2">
+                            <img src="{{ first_image.image.url }}" alt="Observation image" class="img-thumbnail me-1" style="height: 50px; width: auto;">
+                        </div>
+                    {% endif %}
+                 {% endwith %}
+            </li>
+            {% endfor %}
+        </ul>
+        <div id="observation-list-empty" class="card-body text-center text-muted" {% if observations %}style="display: none;"{% endif %}>
+            No observations recorded yet for this session.
+        </div>
+        {# Removed slice limit message - list will grow #}
+        {# {% if observations.count > 10 %}
+        <div class="card-footer text-center small">
+             Showing latest 10 observations.
+        </div>
+        {% endif %} #}
+    </div>
+
+  </div> {# End Right Column #}
+
+</div> {# End Row #}
+
+{# --- Safely pass data to JavaScript --- #}
+{{ target_plants|default:0|json_script:"target-plants-data" }}
+{{ completed_plants|default:0|json_script:"completed-plants-data" }}
+
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{# Add Leaflet JS if needed #}
+{# <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script> #}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("Active survey session page loaded.");
+    const saveBtn = document.getElementById('save-observation-btn');
+    const finishBtn = document.getElementById('finish-session-btn');
+    const gpsStatus = document.getElementById('gps-status');
+    const latInput = document.getElementById('id_latitude');
+    const lonInput = document.getElementById('id_longitude');
+    const accInput = document.getElementById('id_gps_accuracy');
+    const form = document.getElementById('observation-form');
+    const saveStatusSpan = document.getElementById('save-status'); // Get status span
+    // Read data passed via json_script
+    const targetPlants = JSON.parse(document.getElementById('target-plants-data').textContent);
+    let completedPlants = JSON.parse(document.getElementById('completed-plants-data').textContent);
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    const observationList = document.getElementById('observation-list');
+    const observationListEmpty = document.getElementById('observation-list-empty');
+    const observationCountSpan = document.getElementById('observation-count');
+    // Add IDs for progress card counts
+    const completedObsCountSpan = document.getElementById('completed-obs-count');
+    const uniquePestsCountSpan = document.getElementById('unique-pests-count');
+    const uniqueDiseasesCountSpan = document.getElementById('unique-diseases-count');
+
+    // --- Function to add observation to list --- 
+    function addObservationToList(obsData) {
+        if (!observationList || !obsData) return;
+
+        // Hide the 'empty' message if it's visible
+        if (observationListEmpty) observationListEmpty.style.display = 'none';
+
+        // Create new list item element
+        const li = document.createElement('li');
+        li.className = 'list-group-item';
+        li.dataset.observationId = obsData.id;
+
+        let findingsHTML = '';
+        if ((obsData.pests && obsData.pests.length > 0) || (obsData.diseases && obsData.diseases.length > 0)) {
+            findingsHTML += ' - Findings: ';
+            obsData.pests.forEach(p => { findingsHTML += `<span class="badge bg-danger">${p}</span> `; });
+            obsData.diseases.forEach(d => { findingsHTML += `<span class="badge bg-warning text-dark">${d}</span> `; });
+        }
+
+        let notesHTML = '';
+        if (obsData.notes_truncated) {
+            notesHTML = `<small class="d-block text-muted">Notes: ${obsData.notes_truncated}</small>`;
+        }
+        
+        let imagesHTML = '';
+        // Use the single image_url data from the API response
+        if (obsData.image_url) {
+             imagesHTML = `
+             <div class="mt-2">
+                 <img src="${obsData.image_url}" alt="Observation image" class="img-thumbnail me-1" style="height: 50px; width: auto;">
+             </div>`;
+        }
+
+        li.innerHTML = `
+            <strong>Time:</strong> ${obsData.time_formatted} 
+            <small>(${obsData.latitude || '-'}, ${obsData.longitude || '-'})</small>
+            ${findingsHTML}
+            ${notesHTML}
+            ${imagesHTML}
+        `;
+
+        // Prepend to the list
+        observationList.insertBefore(li, observationList.firstChild);
+        
+        // Update count in header
+        if (observationCountSpan) {
+            observationCountSpan.textContent = completedPlants; // Use the updated count
+        }
+    }
+
+    // --- Function to update UI elements (progress, finish button, counts) ---
+    function updateUI(newCounts = null) { // Accept optional counts object
+        // Use live count or count from API response
+        let currentCompleted = newCounts ? newCounts.completed : completedPlants;
+        let currentPests = newCounts ? newCounts.unique_pests : parseInt(uniquePestsCountSpan?.textContent || '0');
+        let currentDiseases = newCounts ? newCounts.unique_diseases : parseInt(uniqueDiseasesCountSpan?.textContent || '0');
+        
+        console.log(`Updating UI: Completed ${currentCompleted} / Target ${targetPlants}`);
+        // Update progress bar text/width
+        const progressBar = document.querySelector('.progress-bar');
+        if (progressBar && targetPlants > 0) {
+            const percentage = Math.min(100, Math.floor((currentCompleted / targetPlants) * 100)); // Cap at 100%
+            progressBar.style.width = percentage + '%';
+            progressBar.textContent = `${currentCompleted}/${targetPlants}`;
+            // Add Bootstrap classes for color based on completion?
+            progressBar.classList.remove('bg-success', 'bg-warning');
+            if (percentage >= 100) {
+                progressBar.classList.add('bg-success');
+            } else if (percentage > 50) {
+                 progressBar.classList.add('bg-warning');
+            }
+        }
+        // Update completed count display
+        if(completedObsCountSpan) completedObsCountSpan.textContent = currentCompleted;
+        // Update unique pest/disease counts
+        if(uniquePestsCountSpan) uniquePestsCountSpan.textContent = currentPests;
+        if(uniqueDiseasesCountSpan) uniqueDiseasesCountSpan.textContent = currentDiseases;
+        
+        // Enable finish button if target met
+        if (finishBtn && targetPlants > 0 && currentCompleted >= targetPlants) {
+            finishBtn.disabled = false;
+        } else if (finishBtn) {
+            finishBtn.disabled = true;
+        }
+        // Update observation count in list header
+        if (observationCountSpan) {
+             observationCountSpan.textContent = currentCompleted;
+        }
+    }
+
+    // 1. Get GPS Location
+    function getGPSLocation() {
+        if (!navigator.geolocation) {
+            gpsStatus.className = 'alert alert-danger small';
+            gpsStatus.innerHTML = '<i class="bi bi-x-octagon-fill me-1"></i> Geolocation is not supported by your browser.';
+            if(saveBtn) saveBtn.disabled = true;
+            return;
+        }
+
+        gpsStatus.className = 'alert alert-warning small';
+        gpsStatus.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring high accuracy GPS... Please wait.';
+        if(saveBtn) saveBtn.disabled = true;
+        
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const latitude = position.coords.latitude;
+                const longitude = position.coords.longitude;
+                const accuracy = position.coords.accuracy;
+                
+                console.log(`GPS Acquired: Lat: ${latitude}, Lon: ${longitude}, Acc: ${accuracy}m`);
+                gpsStatus.className = 'alert alert-success small';
+                gpsStatus.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i> GPS Lock Acquired (Accuracy: ${accuracy.toFixed(1)}m)`;
+                
+                if(latInput) latInput.value = latitude.toFixed(9);
+                if(lonInput) lonInput.value = longitude.toFixed(9);
+                if(accInput) accInput.value = accuracy.toFixed(2);
+                if(saveBtn) saveBtn.disabled = false; // Enable save button
+            },
+            (error) => {
+                gpsStatus.className = 'alert alert-danger small';
+                let errorMsg = 'Error acquiring GPS: ';
+                switch(error.code) {
+                    case error.PERMISSION_DENIED: errorMsg += "User denied Geolocation request."; break;
+                    case error.POSITION_UNAVAILABLE: errorMsg += "Location information unavailable."; break;
+                    case error.TIMEOUT: errorMsg += "Location request timed out."; break;
+                    default: errorMsg += "An unknown error occurred."; break;
+                }
+                gpsStatus.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-1"></i> ${errorMsg}`;
+                console.error(errorMsg);
+                if(saveBtn) saveBtn.disabled = true;
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+    }
+
+    // 2. Handle Form Submission (AJAX)
+    if (form) {
+        form.addEventListener('submit', function(event) {
+            event.preventDefault(); // Stop normal form submission
+            saveBtn.disabled = true; // Disable button during save
+            saveStatusSpan.textContent = ' Saving...';
+            saveStatusSpan.className = 'text-muted';
+
+            // Create FormData object to handle file uploads correctly
+            const formData = new FormData(form);
+            // Add session_id explicitly (if not already part of form)
+            const sessionId = form.dataset.sessionId;
+            if (sessionId) {
+                 formData.append('session_id', sessionId);
+            }
+            
+            // Add hidden GPS fields to FormData
+            if (latInput) formData.append('latitude', latInput.value);
+            if (lonInput) formData.append('longitude', lonInput.value);
+            if (accInput) formData.append('gps_accuracy', accInput.value);
+
+            console.log("Submitting observation data via Fetch...");
+            // Use Fetch API to POST data
+            fetch("{% url 'core:api_create_observation' %}", {
+                method: 'POST',
+                headers: {
+                    // 'Content-Type': 'multipart/form-data' is set automatically by browser for FormData
+                    'X-CSRFToken': csrfToken // Include CSRF token if not using @csrf_exempt
+                },
+                body: formData
+            })
+            .then(response => response.json()) // Expect JSON response
+            .then(data => {
+                console.log("API Response:", data);
+                // Check for observation data AND session counts
+                if (data.status === 'success' && data.observation && data.session_counts) {
+                    saveStatusSpan.textContent = ' Saved!';
+                    saveStatusSpan.className = 'text-success';
+                    form.reset(); // Clear the form
+                    // Clear the file input specifically if it exists
+                    const fileInput = form.querySelector('#id_image'); // Use the default ID for the single image field
+                    if(fileInput) fileInput.value = ''; // Reset file input
+                    // Update global count *before* adding to list, so list header count is correct
+                    completedPlants = data.session_counts.completed; 
+                    addObservationToList(data.observation); // Pass the observation object
+                    // Pass new counts to updateUI
+                    updateUI(data.session_counts); 
+                } else {
+                    saveStatusSpan.textContent = ` Error: ${data.message || 'Unknown error'}`;
+                    saveStatusSpan.className = 'text-danger';
+                }
+            })
+            .catch(error => {
+                console.error('Error submitting observation:', error);
+                saveStatusSpan.textContent = ' Error submitting observation.';
+                saveStatusSpan.className = 'text-danger';
+            })
+            .finally(() => {
+                // Re-enable save button? Or wait for new GPS lock?
+                // saveBtn.disabled = false; 
+                getGPSLocation(); // Get new location for next potential observation
+                 // Clear status message after a delay
+                setTimeout(() => { saveStatusSpan.textContent = ''; }, 3000);
+            });
+        });
+    }
+
+    // 3. Handle Finish Button
+    if (finishBtn) {
+        // Enable finish button only if target met
+        if (targetPlants > 0 && completedPlants >= targetPlants) {
+            finishBtn.disabled = false;
+        }
+
+        finishBtn.addEventListener('click', function() {
+            console.log("Finish session button clicked.");
+            
+            if (!confirm("Are you sure you want to finish and lock this survey session?")) {
+                return; // User cancelled
+            }
+
+            finishBtn.disabled = true; // Disable button
+            finishBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Finishing...';
+
+            const sessionId = form.dataset.sessionId; // Get session ID from form data attribute
+            const finishUrl = "{% url 'core:api_finish_survey' session_id='00000000-0000-0000-0000-000000000000' %}".replace('00000000-0000-0000-0000-000000000000', sessionId);
+
+            fetch(finishUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken // Include CSRF token
+                    // 'Content-Type': 'application/json' // Not needed for empty body POST
+                },
+                // No body needed, the action is in the URL/verb
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("Finish API Response:", data);
+                if (data.status === 'success' && data.redirect_url) {
+                    alert("Survey session completed successfully!"); // Simple alert
+                    window.location.href = data.redirect_url; // Redirect user
+                } else {
+                    alert(`Error finishing session: ${data.message || 'Unknown error'}`);
+                    finishBtn.disabled = false; // Re-enable button on error
+                     finishBtn.innerHTML = '<i class="bi bi-flag-fill me-1"></i> Finish Survey Session';
+                }
+            })
+            .catch(error => {
+                console.error('Error finishing session:', error);
+                alert("An error occurred while trying to finish the session.");
+                finishBtn.disabled = false; // Re-enable button on error
+                finishBtn.innerHTML = '<i class="bi bi-flag-fill me-1"></i> Finish Survey Session';
+            });
+        });
+    }
+
+    // Initial GPS fetch and UI update
+    getGPSLocation();
+    updateUI(); // Initial UI state
+
+});
+</script>
+{% endblock extra_js %} 

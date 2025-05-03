@@ -12,14 +12,17 @@ import requests
 from decimal import Decimal
 from datetime import datetime
 import pprint
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from django.template.defaultfilters import date as format_date, truncatechars # For formatting dates
 
 from .forms import (
-    SignUpForm, FarmForm, SurveillanceRecordForm, 
-    UserEditForm, GrowerProfileEditForm, CalculatorForm
+    SignUpForm, FarmForm, 
+    UserEditForm, GrowerProfileEditForm, CalculatorForm, ObservationForm
 )
 from .models import (
     Farm, PlantType, PlantPart, Pest, SurveillanceRecord, 
-    Grower, Region, SurveillanceCalculation, BoundaryMappingToken, Disease
+    Grower, Region, SurveillanceCalculation, BoundaryMappingToken, Disease, SurveySession, Observation, ObservationImage, User
 )
 
 # Import services
@@ -863,3 +866,428 @@ def map_boundary_via_token_view(request, token):
 def geoscape_test_view(request):
     """Renders the Geoscape API test page."""
     return render(request, 'core/geoscape_test.html')
+
+
+@login_required
+def start_survey_session_view(request, farm_id):
+    """
+    Initiates a new survey session for the given farm.
+    Checks for existing incomplete sessions (future enhancement).
+    Creates a new SurveySession object and redirects to the active session view.
+    """
+    # Get farm with permission check (using existing service)
+    farm, error = get_farm_details(farm_id, request.user)
+    if error:
+        messages.error(request, error)
+        # Redirect to farm list or dashboard if farm access fails
+        return redirect('core:myfarms') 
+
+    # TODO: Check for existing 'in_progress' sessions for this farm/user
+    # existing_session = SurveySession.objects.filter(
+    #     farm=farm, 
+    #     surveyor=request.user, 
+    #     status='in_progress' 
+    # ).first()
+    # if existing_session:
+    #     messages.info(request, f"Resuming existing survey session for {farm.name}.")
+    #     # Redirect to the active session view, passing the session ID
+    #     return redirect('core:active_survey_session', session_id=existing_session.session_id)
+
+    # Get recommended plant count (target) for this session
+    target_plants = None
+    try:
+        latest_calc = SurveillanceCalculation.objects.filter(farm=farm, is_current=True).latest('date_created')
+        target_plants = latest_calc.required_plants
+        print(f"StartSession: Found target plants from calculation: {target_plants}")
+    except SurveillanceCalculation.DoesNotExist:
+        print(f"StartSession: No current calculation found for farm {farm.id}. Target plants will be None.")
+        # Optionally, calculate on the fly here if needed
+    except Exception as e:
+        print(f"StartSession: Error fetching calculation for farm {farm.id}: {e}")
+
+    # Create a new session
+    try:
+        new_session = SurveySession.objects.create(
+            farm=farm,
+            surveyor=request.user,
+            status='in_progress', # Start immediately as in progress
+            start_time=timezone.now(),
+            target_plants_surveyed=target_plants
+        )
+        messages.success(request, f"New survey session started for {farm.name}.")
+        print(f"StartSession: Created new session {new_session.session_id} for farm {farm.id}")
+        
+        # Redirect to the actual active session view using the created session_id
+        return redirect('core:active_survey_session', session_id=new_session.session_id)
+        # messages.info(request, "Redirecting to active session page (placeholder). Session ID: {}".format(new_session.session_id))
+        # # TEMPORARY Redirect back to farm detail until active session page exists
+        # return redirect('core:farm_detail', farm_id=farm.id) 
+
+    except Exception as e:
+        messages.error(request, f"Could not start a new survey session: {e}")
+        print(f"StartSession: Error creating SurveySession for farm {farm.id}: {e}")
+        return redirect('core:farm_detail', farm_id=farm.id)
+
+
+@login_required
+def active_survey_session_view(request, session_id):
+    """
+    Displays the main interface for an active survey session.
+    Handles recording of individual observations (via AJAX/future enhancement).
+    """
+    try:
+        # Fetch the session, prefetching related farm and surveyor for efficiency
+        session = get_object_or_404(
+            SurveySession.objects.select_related('farm', 'surveyor'), 
+            session_id=session_id
+        )
+        print(f"ActiveSession: Fetched session {session.session_id} for farm '{session.farm.name}'")
+        
+        # --- Permission Check --- 
+        # Ensure the logged-in user is the one who started this survey
+        if session.surveyor != request.user:
+             messages.error(request, "You do not have permission to access this survey session.")
+             print(f"ActiveSession: Permission denied for user {request.user.username} on session {session.session_id} owned by {session.surveyor.username}")
+             # Redirect to dashboard or somewhere appropriate
+             return redirect('core:dashboard') 
+             
+        # Prevent access to already completed/abandoned sessions on this page
+        if session.status not in ['not_started', 'in_progress']:
+             messages.warning(request, f"This survey session ('{session.status}') is no longer active.")
+             print(f"ActiveSession: Session {session.session_id} has status '{session.status}', redirecting.")
+             # Redirect to a summary page or farm detail later?
+             return redirect('core:farm_detail', farm_id=session.farm.id) 
+             
+        # If session was 'not_started', mark it as 'in_progress' now that it's accessed
+        if session.status == 'not_started':
+            session.status = 'in_progress'
+            # Optionally update start_time if it should reflect access time, 
+            # but default=timezone.now on creation might be sufficient.
+            # session.start_time = timezone.now() 
+            session.save(update_fields=['status'])
+            print(f"ActiveSession: Marked session {session.session_id} as in_progress.")
+
+    except Http404:
+        messages.error(request, "Survey session not found.")
+        print(f"ActiveSession: SurveySession with ID {session_id} not found (404).")
+        return redirect('core:dashboard') # Or farm list
+    except Exception as e:
+         messages.error(request, f"An error occurred accessing the survey session: {e}")
+         print(f"ActiveSession: Error fetching session {session_id}: {e}")
+         return redirect('core:dashboard')
+
+    # --- Prepare Context Data --- 
+    # Fetch existing observations for this session (to display later)
+    observations = Observation.objects.filter(session=session).order_by('-observation_time')
+    
+    # --- Calculate Unique Pest/Disease Counts for the Session --- #
+    unique_pests_count = Pest.objects.filter(observations__session=session).distinct().count()
+    unique_diseases_count = Disease.objects.filter(observations__session=session).distinct().count()
+    print(f"ActiveSession: Unique Pests={unique_pests_count}, Unique Diseases={unique_diseases_count}")
+    # --- End Calculation ---
+
+    # Get recommendations for the current stage
+    stage_info = get_seasonal_stage_info() # Assumes recommendations don't change mid-session
+    recommended_pests = Pest.objects.filter(name__in=stage_info.get('pest_names', []))
+    recommended_diseases = Disease.objects.filter(name__in=stage_info.get('disease_names', []))
+    # We don't need recommended_parts here anymore as the ObservationForm doesn't have a parts field
+    # recommended_parts = PlantPart.objects.filter(name__in=stage_info.get('part_names', []))
+    current_stage_name = stage_info.get('stage_name', 'Unknown')
+
+    # ---> Instantiate the ObservationForm <--- #
+    observation_form = ObservationForm()
+
+    # Calculate completion percentage
+    completed_count = observations.count()
+    target_count = session.target_plants_surveyed or 0 # Ensure target is not None
+    completion_percentage = 0
+    if target_count > 0:
+        completion_percentage = min(100, int((completed_count / target_count) * 100))
+
+    context = {
+        'session': session,
+        'farm': session.farm,
+        'observations': observations,
+        'observation_form': observation_form, # Pass the form instance
+        'recommended_pests': recommended_pests,
+        'recommended_diseases': recommended_diseases,
+        # 'recommended_parts': recommended_parts, # Removed
+        'current_stage_name': current_stage_name,
+        'target_plants': session.target_plants_surveyed,
+        'completed_plants': completed_count, # Use calculated count
+        'unique_pests_count': unique_pests_count,
+        'unique_diseases_count': unique_diseases_count,
+        'completion_percentage': completion_percentage # Add percentage to context
+    }
+
+    # Render a new template for the active session
+    return render(request, 'core/active_survey_session.html', context) 
+
+
+@csrf_exempt
+@require_POST
+@login_required
+def create_observation_api(request):
+    """
+    API endpoint to handle AJAX submission of a new observation.
+    Expects POST data including session_id, lat, lon, accuracy, pests, diseases, notes, image.
+    """
+    try:
+        # For simplicity, assume data comes as multipart/form-data (due to image)
+        # rather than pure JSON. Access via request.POST and request.FILES.
+        session_id = request.POST.get('session_id')
+        latitude = request.POST.get('latitude')
+        longitude = request.POST.get('longitude')
+        accuracy = request.POST.get('gps_accuracy')
+        notes = request.POST.get('notes', '')
+        pest_ids = request.POST.getlist('pests_observed') # Checkbox values
+        disease_ids = request.POST.getlist('diseases_observed') # Checkbox values
+        # Get single image file
+        image_file = request.FILES.get('image') 
+        
+        print(f"API Create Obs: Received data for session: {session_id}")
+        print(f"  Lat: {latitude}, Lon: {longitude}, Acc: {accuracy}")
+        print(f"  Pest IDs: {pest_ids}, Disease IDs: {disease_ids}")
+        print(f"  Notes: '{notes[:50]}...'")
+        # Log single image file
+        print(f"  Image file: {image_file}")
+
+        if not session_id:
+            return JsonResponse({'status': 'error', 'message': 'Missing session_id.'}, status=400)
+
+        # --- Validation & Processing --- 
+        try:
+            session = SurveySession.objects.get(session_id=session_id, surveyor=request.user)
+            if session.status not in ['in_progress', 'not_started']: # Allow adding if just started
+                 return JsonResponse({'status': 'error', 'message': 'Survey session is not active.'}, status=400)
+        except SurveySession.DoesNotExist:
+             return JsonResponse({'status': 'error', 'message': 'Invalid or unauthorized session_id.'}, status=404)
+             
+        # Convert GPS data (handle potential errors/empty strings)
+        try:
+            lat_decimal = Decimal(latitude) if latitude else None
+            lon_decimal = Decimal(longitude) if longitude else None
+            acc_decimal = Decimal(accuracy) if accuracy else None
+        except (TypeError, ValueError, Decimal.InvalidOperation):
+             return JsonResponse({'status': 'error', 'message': 'Invalid GPS coordinate format.'}, status=400)
+             
+        # Create the Observation object
+        observation = Observation.objects.create(
+            session=session,
+            latitude=lat_decimal,
+            longitude=lon_decimal,
+            gps_accuracy=acc_decimal,
+            notes=notes,
+            # observation_time is set by default=timezone.now
+        )
+        
+        # Add M2M relationships
+        if pest_ids:
+            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
+        if disease_ids:
+            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+            
+        # --- Handle single image upload --- 
+        image_url = None # Initialize as None
+        if image_file:
+            try:
+                obs_image = ObservationImage.objects.create(
+                    observation=observation,
+                    image=image_file
+                )
+                image_url = request.build_absolute_uri(obs_image.image.url)
+                print(f"API Create Obs: Saved image {obs_image.image.name} for observation {observation.id}")
+            except Exception as e:
+                print(f"Error saving image for observation {observation.id}: {e}")
+
+        # --- Calculate updated session counts ---
+        completed_count = session.observations.count()
+        session_pests_count = Pest.objects.filter(observations__session=session).distinct().count()
+        session_diseases_count = Disease.objects.filter(observations__session=session).distinct().count()
+        # Remove None if no pests/diseases are linked
+        unique_pest_ids = set(observation.pests_observed.values_list('id', flat=True))
+        unique_disease_ids = set(observation.diseases_observed.values_list('id', flat=True))
+
+        # --- Prepare response data ---
+        response_data = {
+            'status': 'success',
+            'observation': {
+                'id': observation.id,
+                'time_formatted': observation.observation_time.strftime('%I:%M %p'), # Format time
+                'latitude': f'{observation.latitude:.5f}' if observation.latitude else '-',
+                'longitude': f'{observation.longitude:.5f}' if observation.longitude else '-',
+                'pests': [p.name for p in observation.pests_observed.all()],
+                'diseases': [d.name for d in observation.diseases_observed.all()],
+                'notes_truncated': truncatechars(observation.notes, 50),
+                'image_url': image_url 
+            },
+            'session_counts': {
+                'completed': completed_count,
+                'unique_pests': session_pests_count,
+                'unique_diseases': session_diseases_count
+            }
+        }
+        # ---> END Prepare response data --- #
+        
+        # Return success response
+        return JsonResponse(response_data)
+
+    except Exception as e:
+        print(f"API Create Obs: Error processing request - {e}")
+        return JsonResponse({'status': 'error', 'message': f'An internal error occurred: {e}'}, status=500) 
+
+
+@csrf_exempt
+@require_POST
+@login_required
+def finish_survey_session_api(request, session_id):
+    """
+    API endpoint to mark a survey session as completed.
+    """
+    try:
+        session = get_object_or_404(
+            SurveySession, 
+            session_id=session_id, 
+            surveyor=request.user # Ensure user owns the session
+        )
+
+        # Check if the session is actually in progress
+        if session.status != 'in_progress':
+            return JsonResponse({'status': 'error', 'message': 'Session is not currently in progress.'}, status=400)
+
+        # Optional: Check if minimum observations met (can also be enforced client-side)
+        # target_plants = session.target_plants_surveyed or 0
+        # completed_plants = session.observations.count()
+        # if target_plants > 0 and completed_plants < target_plants:
+        #     return JsonResponse({'status': 'error', 'message': 'Minimum observations not yet recorded.'}, status=400)
+
+        # Update session status and end time
+        session.status = 'completed'
+        session.end_time = timezone.now()
+        session.save(update_fields=['status', 'end_time'])
+        
+        print(f"API Finish Session: Marked session {session.session_id} as completed.")
+        messages.success(request, f"Survey session for {session.farm.name} completed successfully!") 
+
+        # Provide a URL to redirect to upon success (e.g., farm detail)
+        redirect_url = reverse('core:farm_detail', kwargs={'farm_id': session.farm.id})
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Survey session completed.',
+            'redirect_url': redirect_url
+        })
+
+    except Http404:
+        return JsonResponse({'status': 'error', 'message': 'Survey session not found or access denied.'}, status=404)
+    except Exception as e:
+        print(f"API Finish Session: Error finishing session {session_id}: {e}")
+        return JsonResponse({'status': 'error', 'message': f'An internal error occurred: {e}'}, status=500) 
+
+
+@login_required
+def survey_session_list_view(request, farm_id):
+    """
+    Displays a list of all survey sessions for a specific farm.
+    """
+    # Get farm with permission check (reuse existing service if applicable, or basic check)
+    try:
+        farm = get_object_or_404(Farm, id=farm_id, owner=request.user.grower_profile)
+    except Http404:
+        messages.error(request, "Farm not found or you do not have permission to view it.")
+        return redirect('core:myfarms')
+
+    # Fetch survey sessions for this farm, ordered by start time (newest first)
+    # Add annotation for observation count
+    sessions = SurveySession.objects.filter(farm=farm).annotate(
+        observation_count=Count('observations')
+    ).order_by('-start_time')
+
+    context = {
+        'farm': farm,
+        'sessions': sessions,
+    }
+    return render(request, 'core/survey_session_list.html', context)
+
+
+@login_required
+def survey_session_detail_view(request, session_id):
+    """
+    Displays the details of a completed or abandoned survey session.
+    """
+    try:
+        # Fetch the session, prefetching related data for efficiency
+        session = get_object_or_404(
+            SurveySession.objects.select_related('farm', 'surveyor'), 
+            session_id=session_id
+        )
+        print(f"SessionDetail: Fetched session {session.session_id} for farm '{session.farm.name}'")
+        
+        # --- Permission Check --- 
+        # Ensure the logged-in user is the surveyor (or potentially admin in future)
+        if session.surveyor != request.user:
+             messages.error(request, "You do not have permission to view this survey session.")
+             print(f"SessionDetail: Permission denied for user {request.user.username} on session {session.session_id}")
+             # Redirect to farm list or session list for that farm
+             return redirect('core:survey_session_list', farm_id=session.farm.id) 
+             
+        # Optionally restrict view to only completed/abandoned?
+        # if session.status not in ['completed', 'abandoned']:
+        #     messages.warning(request, "This session is still in progress.")
+        #     return redirect('core:active_survey_session', session_id=session.session_id)
+
+    except Http404:
+        messages.error(request, "Survey session not found.")
+        print(f"SessionDetail: SurveySession with ID {session_id} not found (404).")
+        # Redirect to dashboard or somewhere sensible if session ID is invalid
+        return redirect('core:dashboard') 
+    except Exception as e:
+         messages.error(request, f"An error occurred accessing the survey session: {e}")
+         print(f"SessionDetail: Error fetching session {session_id}: {e}")
+         return redirect('core:dashboard')
+
+    # --- Fetch Observations with related data --- 
+    observations = Observation.objects.filter(session=session).prefetch_related(
+        'pests_observed', 
+        'diseases_observed', 
+        'images' # Prefetch images
+    ).order_by('observation_time') # Order by time recorded
+    
+    # --- Prepare Coordinates for Map --- #
+    observation_coords = []
+    for obs in observations:
+        if obs.latitude and obs.longitude:
+            observation_coords.append({
+                'lat': float(obs.latitude), 
+                'lon': float(obs.longitude),
+                'time': obs.observation_time.strftime('%I:%M %p'),
+                'pests': [p.name for p in obs.pests_observed.all()],
+                'diseases': [d.name for d in obs.diseases_observed.all()],
+                'has_image': obs.images.exists() # Check if image exists
+            })
+    observation_coords_json = json.dumps(observation_coords)
+
+    # --- Calculate Stats --- #
+    completed_count = observations.count()
+    unique_pests = Pest.objects.filter(observations__session=session).distinct()
+    unique_diseases = Disease.objects.filter(observations__session=session).distinct()
+
+    context = {
+        'session': session,
+        'farm': session.farm,
+        'observations': observations,
+        'completed_count': completed_count,
+        'unique_pests_count': unique_pests.count(),
+        'unique_diseases_count': unique_diseases.count(),
+        'unique_pests': unique_pests,
+        'unique_diseases': unique_diseases,
+        'observation_coords_json': observation_coords_json # Add coordinates JSON to context
+    }
+
+    # --- DEBUG: Print context before rendering ---
+    print("\\n--- DEBUG: Context for survey_session_detail ---")
+    print(f"Session ID: {session.session_id}")
+    print(f"Observation Coords JSON: {observation_coords_json}") 
+    print("--------------------------------------------\\n")
+
+    return render(request, 'core/survey_session_detail.html', context) 

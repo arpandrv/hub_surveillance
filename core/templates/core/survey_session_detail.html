@@ -1,0 +1,389 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Survey Details: {{ farm.name }} ({{ session.start_time|date:"M j, Y" }}){% endblock %}
+
+{% block heading %}Survey Session Details{% endblock %}
+
+{% block head_extra %}
+{# Add Leaflet CSS #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<style>
+  .observation-card {
+    margin-bottom: 1rem;
+  }
+  .observation-card img {
+    max-width: 100px; /* Limit thumbnail size */
+    height: auto;
+  }
+  /* Style for the map - Ensure dimensions and visibility */
+  #observationMap {
+      display: block; /* Ensure it's not hidden */
+      height: 400px;  /* Explicit height */
+      width: 100%;    /* Explicit width */
+      border: 1px solid #ccc;
+      border-radius: .375rem;
+      margin-bottom: 1.5rem; 
+  }
+  /* Gradient legend */
+  .heatmap-legend {
+      position: relative;
+      height: 30px;
+      background: linear-gradient(to right, rgba(0,0,255,0.5), rgba(0,255,0,0.5), rgba(255,255,0,0.5), rgba(255,0,0,0.5));
+      margin-top: 10px;
+      border-radius: 3px;
+  }
+  .heatmap-legend::before {
+      content: 'Low';
+      position: absolute;
+      left: 0;
+      bottom: -20px;
+      font-size: 12px;
+  }
+  .heatmap-legend::after {
+      content: 'High';
+      position: absolute;
+      right: 0;
+      bottom: -20px;
+      font-size: 12px;
+  }
+</style>
+{% endblock head_extra %}
+
+{% block content %}
+{# Session Summary Card #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-primary text-white">
+        <i class="bi bi-clipboard-data me-1"></i> Session Summary
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <p><strong>Farm:</strong> <a href="{% url 'core:farm_detail' farm.id %}">{{ farm.name }}</a></p>
+                <p><strong>Surveyor:</strong> {{ session.surveyor.username }}</p>
+                <p><strong>Status:</strong> <span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span></p>
+            </div>
+            <div class="col-md-6">
+                <p><strong>Started:</strong> {{ session.start_time|date:"M j, Y, P" }}</p>
+                <p><strong>Ended:</strong> {{ session.end_time|date:"P"|default:"-" }}</p>
+                <p><strong>Duration:</strong> {{ session.duration|default:"-" }}</p>
+            </div>
+        </div>
+        <hr>
+        <div class="row">
+             <div class="col-md-4">
+                <p><strong>Target Observations:</strong> {{ session.target_plants_surveyed|default:"Not Set" }}</p>
+             </div>
+             <div class="col-md-4">
+                <p><strong>Observations Recorded:</strong> {{ completed_count }}</p>
+             </div>
+             <div class="col-md-4">
+                {# Progress bar (optional, can reuse active session logic if needed) #}
+             </div>
+        </div>
+        <div class="row mt-2">
+             <div class="col-md-6">
+                <p><strong>Unique Pests Found ({{ unique_pests_count }}):</strong> 
+                    {% for p in unique_pests %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                </p>
+             </div>
+              <div class="col-md-6">
+                <p><strong>Unique Diseases Found ({{ unique_diseases_count }}):</strong> 
+                    {% for d in unique_diseases %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                </p>
+             </div>
+        </div>
+    </div>
+</div>
+
+{# --- Map Card - Add this section --- #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <i class="bi bi-map me-1"></i> Pest & Disease Intensity Map
+    </div>
+    <div class="card-body">
+        {# This is the div the JavaScript looks for #}
+        <div id="observationMap"></div> 
+        <div class="heatmap-legend" title="Intensity of pest/disease observations"></div>
+        <p class="text-muted mt-3 small">Colors represent concentration of pest and disease observations. Brighter areas indicate higher concentrations of detected pests or diseases.</p>
+        {# Message if no coords were passed (JS also handles this) #}
+        {% if not observation_coords_json or observation_coords_json == '[]' %} 
+            <p class="text-muted mt-2">No GPS coordinates were recorded for observations in this session.</p>
+        {% endif %}
+    </div>
+</div>
+{# --- End Map Card --- #}
+
+{# Observations List #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <i class="bi bi-binoculars me-1"></i> Observations Recorded ({{ completed_count }})
+    </div>
+    <div class="card-body">
+        {% if observations %}
+            {% for obs in observations %}
+                <div class="card observation-card">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="card-title">Observation at {{ obs.observation_time|date:"P" }}</h6>
+                                <p class="card-text small text-muted mb-1">
+                                    GPS: 
+                                    {% if obs.latitude and obs.longitude %}
+                                        {{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }}
+                                        (Accuracy: {{ obs.gps_accuracy|floatformat:1|default:"?" }}m)
+                                        {# Add link to external map #}
+                                        <a href="https://www.google.com/maps/search/?api=1&query={{ obs.latitude }},{{ obs.longitude }}" target="_blank" class="ms-1"><i class="bi bi-geo-alt-fill"></i></a>
+                                    {% else %}
+                                        Not recorded
+                                    {% endif %}
+                                </p>
+                                <p class="card-text mb-1">
+                                    <strong>Pests:</strong> 
+                                    {% for p in obs.pests_observed.all %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                                </p>
+                                <p class="card-text mb-1">
+                                    <strong>Diseases:</strong> 
+                                    {% for d in obs.diseases_observed.all %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                                </p>
+                                {% if obs.notes %}
+                                <p class="card-text mt-2"><strong>Notes:</strong> {{ obs.notes|linebreaksbr }}</p>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                {% with first_image=obs.images.first %}
+                                    {% if first_image %}
+                                        <img src="{{ first_image.image.url }}" alt="Observation image" class="img-thumbnail mb-2">
+                                        {# Add link to view all images later? #}
+                                    {% else %}
+                                        <p class="text-muted small text-center mt-3">(No image)</p>
+                                    {% endif %}
+                                {% endwith %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted">No observations were recorded in this session.</p>
+        {% endif %}
+    </div>
+</div>
+
+<a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Back to Session List
+</a>
+
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{# Add Leaflet JS #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+{# Add Leaflet.heat plugin for heatmap #}
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+{# Safely pass coordinates data #}
+{{ observation_coords_json|json_script:"observation-coords-data" }}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM fully loaded and parsed");
+    const coordsDataElement = document.getElementById('observation-coords-data'); 
+    const mapElement = document.getElementById('observationMap');
+    
+    console.log("Map Element Found:", mapElement);
+    console.log("Coords Data Element Found:", coordsDataElement);
+    
+    if (coordsDataElement && mapElement) {
+        console.log("Attempting to parse coordinates data...");
+        let observationCoords = [];
+        
+        try {
+            console.log("Raw textContent before parse:", coordsDataElement.textContent);
+            
+            let parsedData = null;
+            
+            // First parse attempt
+            try {
+                parsedData = JSON.parse(coordsDataElement.textContent || '[]');
+                
+                // Check if what we got is actually a string (which would be a parsing failure)
+                if (typeof parsedData === 'string') {
+                    console.warn("Initial parsing returned a string (not an object)! Attempting secondary parse...");
+                    
+                    // Secondary parse if the result is a string
+                    try {
+                        parsedData = JSON.parse(parsedData);
+                        console.log("Secondary parse successful!");
+                    } catch (innerErr) {
+                        console.error("Secondary parse failed:", innerErr);
+                    }
+                }
+            } catch (parseErr) {
+                console.error("Initial parse error:", parseErr);
+                parsedData = [];
+            }
+            
+            // Final assignment after all parse attempts
+            observationCoords = parsedData;
+            console.log("Final Parsed Coordinates Data:", observationCoords);
+            
+            let hasLength = observationCoords && observationCoords.length > 0;
+            console.log(`DEBUG CHECK: Has Length? ${hasLength}`);
+
+            if (hasLength) { 
+                console.log(`Initializing heatmap with ${observationCoords.length} observation points.`);
+
+                // Get default coordinates
+                let centerLat = observationCoords[0]?.lat;
+                let centerLon = observationCoords[0]?.lon;
+                console.log(`DEBUG CHECK: Center coordinates: Lat=${centerLat}, Lon=${centerLon}`);
+                
+                // Use default coordinates if lat/lon are undefined (Darwin, NT, Australia)
+                if (centerLat === undefined || centerLon === undefined) {
+                    console.log("Using default coordinates for Darwin NT");
+                    centerLat = -12.46;
+                    centerLon = 130.84;
+                    mapElement.insertAdjacentHTML('beforeend', 
+                        '<div class="alert alert-warning mt-2 mb-0">Using default map center (Darwin, NT).</div>'
+                    );
+                }
+                
+                // Initialize map with dark theme for better visualization
+                const map = L.map('observationMap').setView([centerLat, centerLon], 15);
+
+                // Create a more sci-fi looking tile layer - CartoDB Dark Matter
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                    subdomains: 'abcd',
+                    maxZoom: 19
+                }).addTo(map);
+                
+                // Prepare heatmap data points
+                const heatData = [];
+                const totalObservations = observationCoords.length;
+                
+                for (let i = 0; i < observationCoords.length; i++) {
+                    try {
+                        const coord = observationCoords[i];
+                        
+                        if (coord && typeof coord.lat === 'number' && typeof coord.lon === 'number') {
+                            // Calculate intensity based on pest/disease count
+                            const pestCount = coord.pests?.length || 0;
+                            const diseaseCount = coord.diseases?.length || 0;
+                            
+                            // Base intensity (0.5) + extra for each pest/disease (up to 1.0)
+                            const intensity = 0.5 + Math.min(0.5, (pestCount + diseaseCount) * 0.1);
+                            
+                            // Add some randomness for visualization (±0.001 degrees)
+                            // This helps create a more visible heatmap even if coordinates are the same
+                            const jitterLat = coord.lat + (Math.random() * 0.002 - 0.001);
+                            const jitterLon = coord.lon + (Math.random() * 0.002 - 0.001);
+                            
+                            // Add point with intensity
+                            heatData.push([jitterLat, jitterLon, intensity]);
+                            
+                            // For visual effect, add additional points with lower intensity
+                            // for observations with multiple pests/diseases
+                            if (pestCount + diseaseCount > 1) {
+                                for (let j = 0; j < Math.min(5, pestCount + diseaseCount); j++) {
+                                    const spreadLat = jitterLat + (Math.random() * 0.003 - 0.0015);
+                                    const spreadLon = jitterLon + (Math.random() * 0.003 - 0.0015);
+                                    heatData.push([spreadLat, spreadLon, 0.3]);
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error(`Error processing coordinate at index ${i}:`, err);
+                    }
+                }
+                
+                console.log(`Generated ${heatData.length} heatmap points from ${totalObservations} observations`);
+                
+                // Create heatmap layer with sci-fi color gradients
+                const heat = L.heatLayer(heatData, {
+                    radius: 25,                    // Size of each point's impact
+                    blur: 20,                      // Blur factor
+                    maxZoom: 17,                   // Max zoom level for heatmap
+                    max: 1.0,                      // Max intensity
+                    gradient: {                    // Sci-fi style color gradient
+                        0.1: 'rgba(0,0,255,0.5)',  // Blue (low)
+                        0.3: 'rgba(0,255,255,0.6)', // Cyan
+                        0.5: 'rgba(0,255,0,0.7)',  // Green
+                        0.7: 'rgba(255,255,0,0.8)', // Yellow 
+                        0.9: 'rgba(255,0,0,0.9)'   // Red (high)
+                    }
+                }).addTo(map);
+                
+                // Add a pulsating effect for the highest intensity point
+                if (heatData.length > 0) {
+                    // Create a sorted copy of heatData by intensity
+                    const sortedData = [...heatData].sort((a, b) => b[2] - a[2]);
+                    const hotspot = sortedData[0]; // Get highest intensity point
+                    
+                    // Create pulsating circle marker for sci-fi effect
+                    const pulseIcon = L.divIcon({
+                        html: '<div class="pulse-marker"></div>',
+                        className: 'pulse-icon',
+                        iconSize: [20, 20]
+                    });
+                    
+                    const pulseMarker = L.marker([hotspot[0], hotspot[1]], {
+                        icon: pulseIcon
+                    }).addTo(map);
+                    
+                    // Add pulsating effect with CSS
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        .pulse-marker {
+                            border-radius: 50%;
+                            height: 14px;
+                            width: 14px;
+                            background: rgba(255, 0, 0, 0.6);
+                            position: absolute;
+                            box-shadow: 0 0 0 rgba(255, 0, 0, 0.4);
+                            animation: pulse 2s infinite;
+                            left: 50%;
+                            top: 50%;
+                            transform: translate(-50%, -50%);
+                        }
+                        
+                        @keyframes pulse {
+                            0% {
+                                box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7);
+                            }
+                            70% {
+                                box-shadow: 0 0 0 15px rgba(255, 0, 0, 0);
+                            }
+                            100% {
+                                box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+                            }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+                
+                // Fit map to all points
+                if (heatData.length > 0) {
+                    // Create bounds from heat data points
+                    const bounds = L.latLngBounds(heatData.map(point => [point[0], point[1]]));
+                    map.fitBounds(bounds.pad(0.1)); // Add 10% padding
+                }
+                
+                console.log("Heatmap initialization complete.");
+                
+            } else {
+                console.log("No valid observation coordinates array found to display on map.");
+                mapElement.innerHTML = '<p class="text-muted text-center p-5">No GPS data available for this session.</p>';
+                mapElement.style.height = 'auto';
+            }
+
+        } catch (e) {
+            console.error("Error initializing heatmap or parsing coordinates:", e);
+            mapElement.innerHTML = '<div class="alert alert-danger">Error loading map data. Please check console.</div>';
+        }
+    } else {
+        console.log("Map container or coordinate data element not found. Cannot initialize map.");
+    }
+});
+</script>
+{% endblock extra_js %} 

@@ -179,8 +179,12 @@
             <a href="{% url 'core:calculator' %}?farm={{ farm.id }}" class="btn btn-success">
                 <i class="bi bi-calculator"></i> Customize Surveillance Plan
             </a>
-            <a href="{% url 'core:record_surveillance' farm.id %}" class="btn btn-primary">
-                <i class="bi bi-journal-check"></i> Record Surveillance Activity
+            <a href="{% url 'core:start_survey_session' farm.id %}" class="btn btn-primary">
+                <i class="bi bi-play-circle me-1"></i> Start New Survey Session
+            </a>
+            {# Add link to session list #}
+            <a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-outline-secondary">
+                <i class="bi bi-list-ul me-1"></i> View Past Sessions
             </a>
         </div>
         {% else %}

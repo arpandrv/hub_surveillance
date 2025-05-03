@@ -131,7 +131,7 @@
                             <a href="{% url 'core:farm_detail' farm.id %}">{{ farm.name }}</a>
                             <small class="d-block text-muted">Due: {{ farm.next_due_date|date:"M j" }}</small>
                         </div>
-                        <a href="{% url 'core:record_surveillance' farm.id %}" class="btn btn-sm btn-primary">Record</a>
+                        <a href="{% url 'core:start_survey_session' farm.id %}" class="btn btn-sm btn-primary">Start Survey</a>
                     </li>
                     {% endfor %}
                 </ul>

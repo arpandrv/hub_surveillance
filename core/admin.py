@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Grower, Farm, PlantType, PlantPart, Pest, Disease, 
     SurveillanceRecord, Region, SurveillanceCalculation, BoundaryMappingToken,
-    SeasonalStage
+    SeasonalStage, SurveySession, Observation, ObservationImage
 )
 
 # Register your models here.
@@ -96,3 +96,48 @@ class SeasonalStageAdmin(admin.ModelAdmin):
     list_display = ('name', 'months', 'prevalence_p')
     search_fields = ('name',)
     filter_horizontal = ('active_pests', 'active_diseases')
+
+# ---> NEW ADMIN REGISTRATIONS FOR SURVEY SESSIONS <---
+
+@admin.register(SurveySession)
+class SurveySessionAdmin(admin.ModelAdmin):
+    list_display = ('farm', 'surveyor', 'start_time', 'end_time', 'status', 'display_observation_count', 'session_id')
+    list_filter = ('status', 'farm__region', 'surveyor')
+    search_fields = ('farm__name', 'surveyor__username', 'session_id')
+    readonly_fields = ('session_id', 'start_time', 'end_time', 'display_observation_count')
+    date_hierarchy = 'start_time'
+
+    def display_observation_count(self, obj):
+        return obj.observations.count()
+    display_observation_count.short_description = "Observations"
+
+class ObservationImageInline(admin.TabularInline):
+    model = ObservationImage
+    extra = 0
+    readonly_fields = ('uploaded_at',) 
+
+@admin.register(Observation)
+class ObservationAdmin(admin.ModelAdmin):
+    list_display = ('session', 'observation_time', 'latitude', 'longitude', 'get_pest_count', 'get_disease_count', 'get_image_count')
+    list_filter = ('session__farm', 'observation_time')
+    search_fields = ('session__session_id', 'notes')
+    filter_horizontal = ('pests_observed', 'diseases_observed')
+    readonly_fields = ('observation_time',)
+    inlines = [ObservationImageInline]
+
+    def get_pest_count(self, obj):
+        return obj.pests_observed.count()
+    get_pest_count.short_description = 'Pests'
+
+    def get_disease_count(self, obj):
+        return obj.diseases_observed.count()
+    get_disease_count.short_description = 'Diseases'
+
+    def get_image_count(self, obj):
+        return obj.images.count()
+    get_image_count.short_description = 'Images'
+
+# ObservationImage is managed inline via ObservationAdmin, no need to register separately unless desired
+# admin.site.register(ObservationImage)
+
+# ---> END NEW ADMIN REGISTRATIONS <---

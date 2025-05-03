@@ -433,3 +433,112 @@ class BoundaryMappingToken(models.Model):
 
     def __str__(self):
         return f"Token for {self.farm.name} (Expires: {self.expires_at.strftime('%Y-%m-%d %H:%M')})"
+
+
+# ---> NEW MODELS FOR PER-LOCATION SURVEILLANCE <---
+
+SURVEY_STATUS_CHOICES = [
+    ('not_started', 'Not Started'),
+    ('in_progress', 'In Progress'),
+    ('completed', 'Completed'),
+    ('abandoned', 'Abandoned'), # For surveys started but not finished
+]
+
+class SurveySession(models.Model):
+    """
+    Represents a single, distinct surveillance activity undertaken by a user for a specific farm.
+    Contains multiple Observations.
+    """
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='survey_sessions')
+    surveyor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='survey_sessions',
+                                 help_text="The user who performed the survey.")
+    start_time = models.DateTimeField(default=timezone.now,
+                                    help_text="Timestamp when the survey session was initiated.")
+    end_time = models.DateTimeField(null=True, blank=True,
+                                  help_text="Timestamp when the survey session was marked as completed.")
+    status = models.CharField(max_length=20, choices=SURVEY_STATUS_CHOICES, default='not_started',
+                            help_text="The current status of the survey session.")
+    target_plants_surveyed = models.PositiveIntegerField(null=True, blank=True, help_text="Recommended number of plants based on calculation at session start.")
+    session_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True,
+                                   help_text="Unique ID for this specific session instance.")
+
+    class Meta:
+        ordering = ['-start_time']
+        verbose_name = "Survey Session"
+        verbose_name_plural = "Survey Sessions"
+
+    def __str__(self):
+        return f"Survey for {self.farm.name} by {self.surveyor.username} on {self.start_time.strftime('%Y-%m-%d')}"
+
+    def get_status_badge_class(self):
+        """Returns a Bootstrap background class based on status."""
+        if self.status == 'completed':
+            return 'success'
+        elif self.status == 'in_progress':
+            return 'warning text-dark' # Dark text for better contrast on yellow
+        elif self.status == 'abandoned':
+            return 'danger'
+        elif self.status == 'not_started':
+            return 'secondary'
+        return 'light text-dark' # Default
+
+    @property
+    def duration(self):
+        """Calculate the duration of the survey session if completed."""
+        if self.end_time and self.start_time:
+            return self.end_time - self.start_time
+        return None
+
+
+class Observation(models.Model):
+    """
+    Represents a single data point recorded at a specific location during a SurveySession.
+    Includes GPS, timestamp, findings (pests/diseases), notes, and potentially images.
+    """
+    session = models.ForeignKey(SurveySession, on_delete=models.CASCADE, related_name='observations')
+    observation_time = models.DateTimeField(default=timezone.now,
+                                           help_text="Timestamp when this specific observation was recorded.")
+    latitude = models.DecimalField(max_digits=12, decimal_places=9, null=True, blank=True,
+                                   help_text="Latitude coordinate (WGS84).")
+    longitude = models.DecimalField(max_digits=12, decimal_places=9, null=True, blank=True,
+                                    help_text="Longitude coordinate (WGS84).")
+    gps_accuracy = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True,
+                                     help_text="Estimated accuracy of the GPS coordinates in meters.")
+    pests_observed = models.ManyToManyField(Pest, related_name='observations', blank=True)
+    diseases_observed = models.ManyToManyField(Disease, related_name='observations', blank=True)
+    notes = models.TextField(blank=True, null=True)
+    # Add other fields if needed, e.g., plant_id if tracking specific plants
+
+    class Meta:
+        ordering = ['observation_time']
+        verbose_name = "Observation Point"
+        verbose_name_plural = "Observation Points"
+
+    def __str__(self):
+        return f"Observation for Session {self.session.session_id} at {self.observation_time.strftime('%H:%M:%S')}"
+
+
+# Function to define upload path for observation images
+def observation_image_path(instance, filename):
+    # file will be uploaded to MEDIA_ROOT/survey_images/<session_uuid>/<observation_id>_<filename>
+    return f'survey_images/{instance.observation.session.session_id}/{instance.observation.id}_{filename}'
+
+class ObservationImage(models.Model):
+    """
+    Stores an image associated with a specific Observation point.
+    Requires Pillow to be installed and MEDIA_ROOT/MEDIA_URL configured.
+    """
+    observation = models.ForeignKey(Observation, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to=observation_image_path)
+    caption = models.CharField(max_length=255, blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['uploaded_at']
+        verbose_name = "Observation Image"
+        verbose_name_plural = "Observation Images"
+
+    def __str__(self):
+        return f"Image for Observation {self.observation.id} uploaded at {self.uploaded_at.strftime('%Y-%m-%d %H:%M')}"
+
+# ---> END NEW MODELS <---

@@ -39,14 +39,15 @@ urlpatterns = [
     
     # Surveillance
     path('calculator/', views.calculator_view, name='calculator'),
-    path('farms/<int:farm_id>/record/', views.record_surveillance_view, name='record_surveillance'),
+    path('farms/<int:farm_id>/survey/start/', views.start_survey_session_view, name='start_survey_session'),
+    path('survey/<uuid:session_id>/active/', views.active_survey_session_view, name='active_survey_session'),
     path('records/', views.record_list_view, name='record_list'),
     
     # User profile
     path('profile/', views.profile_view, name='profile'),
     
     # Manual Mapping URLs
-    path('farms/<int:farm_id>/generate_mapping_link/', views.generate_mapping_link_view, name='generate_mapping_link'),
+    path('farms/<int:farm_id>/mapping/link/', views.generate_mapping_link_view, name='generate_mapping_link'),
     path('map_boundary_token/<uuid:token>/', views.map_boundary_via_token_view, name='map_boundary_via_token'),
     # path('farms/<int:farm_id>/map_corners/', views.map_boundary_corners_view, name='map_boundary_corners'), # Keep old one commented/removed
     
@@ -61,4 +62,17 @@ urlpatterns = [
 
     # Test page for Geoscape Cadastral API
     path('test/geoscape_cadastre/', views.geoscape_test_view, name='geoscape_test'),
+
+    # ---> NEW API Endpoint for Observations <---
+    path('api/survey/observation/create/', views.create_observation_api, name='api_create_observation'),
+    # ---> NEW API Endpoint for Finishing Session <---
+    path('api/survey/<uuid:session_id>/finish/', views.finish_survey_session_api, name='api_finish_survey'),
+
+    # Survey Session URLs
+    path('farms/<int:farm_id>/sessions/start/', views.start_survey_session_view, name='start_survey_session'),
+    path('sessions/<uuid:session_id>/active/', views.active_survey_session_view, name='active_survey_session'),
+    # New URL for listing sessions for a farm
+    path('farms/<int:farm_id>/sessions/', views.survey_session_list_view, name='survey_session_list'),
+    # Add the missing detail view URL
+    path('sessions/<uuid:session_id>/detail/', views.survey_session_detail_view, name='survey_session_detail'), 
 ]
