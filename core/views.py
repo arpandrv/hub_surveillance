@@ -3,8 +3,9 @@ from django.http import Http404, JsonResponse, HttpResponse
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.db import models
+from django.db.models import Count, F, Q, Max
 from django.utils import timezone
-from django.db.models import Count, Q
 from django.urls import reverse
 import json
 from django.conf import settings
@@ -988,9 +989,17 @@ def active_survey_session_view(request, session_id):
     # --- Get Seasonal Info for Recommendations --- #
     # Use the current month by default for recommendations within the active session
     stage_info = get_seasonal_stage_info()
-    recommended_pests = stage_info.get('pests', []) # Get Pest objects
-    recommended_diseases = stage_info.get('diseases', []) # Get Disease objects
-    recommended_parts = stage_info.get('parts', []) # Get PlantPart objects
+    
+    # Get pest and disease names from stage_info
+    pest_names = stage_info.get('pest_names', []) 
+    disease_names = stage_info.get('disease_names', [])
+    part_names = stage_info.get('part_names', [])
+    
+    # Fetch the actual model objects
+    recommended_pests = Pest.objects.filter(name__in=pest_names)
+    recommended_diseases = Disease.objects.filter(name__in=disease_names)
+    recommended_parts = PlantPart.objects.filter(name__in=part_names)
+    
     current_stage_name = stage_info.get('stage_name', 'Unknown')
 
     # --- Load Existing Observations --- #
@@ -1031,6 +1040,8 @@ def active_survey_session_view(request, session_id):
         'progress_percent': progress_percent,
         'recommended_pests_ids': [p.id for p in recommended_pests],
         'recommended_diseases_ids': [d.id for d in recommended_diseases],
+        'recommended_pests': recommended_pests, # Pass object list for template display
+        'recommended_diseases': recommended_diseases, # Pass object list for template display
         'recommended_parts': recommended_parts, # Pass full objects if needed by template
         'current_stage_name': current_stage_name,
         'latest_draft_json': draft_data_json, # Pass draft data as JSON
@@ -1048,16 +1059,23 @@ def auto_save_observation_api(request):
     Does NOT finalize the observation (status remains 'draft').
     """
     try:
-        data = json.loads(request.body)
-        session_id = data.get('session_id')
-        draft_id = data.get('draft_id') # ID of existing draft, if known
-        latitude = data.get('latitude')
-        longitude = data.get('longitude')
-        gps_accuracy = data.get('gps_accuracy')
-        pest_ids = data.get('pests_observed', [])
-        disease_ids = data.get('diseases_observed', [])
-        notes = data.get('notes', '')
-        plant_seq_str = data.get('plant_sequence_number', '')
+        # Handle FormData instead of JSON
+        session_id = request.POST.get('session_id')
+        draft_id = request.POST.get('draft_id') # ID of existing draft, if known
+        latitude = request.POST.get('latitude')
+        longitude = request.POST.get('longitude')
+        gps_accuracy = request.POST.get('gps_accuracy')
+        pest_ids = request.POST.getlist('pests_observed')
+        disease_ids = request.POST.getlist('diseases_observed')
+        notes = request.POST.get('notes', '')
+        plant_seq_str = request.POST.get('plant_sequence_number', '')
+
+        print(f"Auto-save received: session_id={session_id}, draft_id={draft_id}, plant_seq={plant_seq_str}")
+        print(f"Auto-save received pests: {pest_ids}")
+        print(f"Auto-save received diseases: {disease_ids}")
+
+        if not session_id:
+            return JsonResponse({'status': 'error', 'message': 'Session ID is required.'}, status=400)
 
         session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
 
@@ -1075,37 +1093,14 @@ def auto_save_observation_api(request):
             try:
                 # Try to fetch the existing draft
                 observation = Observation.objects.get(id=draft_id, session=session, status='draft')
-                print(f"Finalizing draft observation ID: {draft_id}")
-                # Update fields from the form
-                observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
-                observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
-                observation.notes = notes
-                observation.plant_sequence_number = plant_sequence_number # Can be None for drafts
-                observation.observation_time = timezone.now() # Update timestamp on each save
-
-                observation.save() # Save basic fields first to get an ID if new
-
-                # Update M2M fields
-                if pest_ids:
-                    observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
-                else:
-                    observation.pests_observed.clear()
-
-                if disease_ids:
-                    observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
-                else:
-                    observation.diseases_observed.clear()
-
-                # Note: Images are NOT handled in auto-save to avoid partial uploads.
-                # They are only processed during the final save (create_observation_api).
-
-                return JsonResponse({'status': 'success', 'message': 'Draft saved.', 'draft_id': observation.id})
-
+                print(f"Updating existing draft ID: {draft_id}")
             except Observation.DoesNotExist:
+                print(f"Draft ID {draft_id} not found, creating new draft")
                 pass # If ID is invalid/mismatched, we'll create a new one
 
         if not observation:
             observation = Observation(session=session, status='draft')
+            print(f"Created new draft observation")
 
         # Update fields
         observation.latitude = Decimal(latitude) if latitude else None
@@ -1115,20 +1110,25 @@ def auto_save_observation_api(request):
         observation.plant_sequence_number = plant_sequence_number # Can be None for drafts
         observation.observation_time = timezone.now() # Update timestamp on each save
 
-        observation.save() # Save observation to get ID if new, or save updates
+        observation.save() # Save observation to get ID first
 
-        # Set M2M fields only after saving for new observations
-        if not draft_id:
-             observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
-             observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+        # Update M2M fields
+        if pest_ids:
+            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
+        else:
+            observation.pests_observed.clear()
+
+        if disease_ids:
+            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+        else:
+            observation.diseases_observed.clear()
 
         # Note: Images are NOT handled in auto-save to avoid partial uploads.
         # They are only processed during the final save (create_observation_api).
 
+        print(f"Draft saved with ID: {observation.id}")
         return JsonResponse({'status': 'success', 'message': 'Draft saved.', 'draft_id': observation.id})
 
-    except json.JSONDecodeError:
-        return JsonResponse({'status': 'error', 'message': 'Invalid JSON data.'}, status=400)
     except SurveySession.DoesNotExist:
         return JsonResponse({'status': 'error', 'message': 'Survey session not found.'}, status=404)
     except Exception as e:
@@ -1150,92 +1150,142 @@ def create_observation_api(request):
     Sets status to 'completed'.
     Handles multiple image uploads.
     """
-    session_id = request.POST.get('session_id')
-    draft_id = request.POST.get('draft_id') # Get draft ID if finalizing
-    session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
-
-    # Use ObservationForm for validation, but handle GPS/images separately
-    form = ObservationForm(request.POST) # Pass POST data directly
-
-    if form.is_valid():
-        try:
-            observation = None
-            if draft_id:
-                try:
-                    # Try to fetch the existing draft
-                    observation = Observation.objects.get(id=draft_id, session=session, status='draft')
-                    print(f"Finalizing draft observation ID: {draft_id}")
-                    # Update fields from the form
-                    observation.pests_observed.set(form.cleaned_data['pests_observed'])
-                    observation.diseases_observed.set(form.cleaned_data['diseases_observed'])
-                    observation.notes = form.cleaned_data['notes']
-                    observation.plant_sequence_number = form.cleaned_data['plant_sequence_number'] # Required now
-                except Observation.DoesNotExist:
-                    print(f"Draft ID {draft_id} not found or not a draft, creating new observation.")
-                    # Fall through to create a new one if draft not found
-
-            if not observation:
-                print("Creating new observation.")
-                # Create a new observation instance if not updating a draft
-                observation = Observation(
-                    session=session,
-                    plant_sequence_number=form.cleaned_data['plant_sequence_number'],
-                    notes=form.cleaned_data['notes'],
+    try:
+        session_id = request.POST.get('session_id')
+        draft_id = request.POST.get('draft_id') # Get draft ID if finalizing
+        
+        print(f"Create observation: session_id={session_id}, draft_id={draft_id}")
+        print(f"POST data: {request.POST}")
+        print(f"Files: {request.FILES}")
+        
+        if not session_id:
+            return JsonResponse({'status': 'error', 'message': 'Session ID is required.'}, status=400)
+            
+        session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
+        
+        # Extract data directly from POST without using ObservationForm for validation
+        pest_ids = request.POST.getlist('pests_observed')
+        disease_ids = request.POST.getlist('diseases_observed')
+        notes = request.POST.get('notes', '')
+        plant_seq_str = request.POST.get('plant_sequence_number', '')
+        
+        # Convert plant sequence number safely
+        plant_sequence_number = None
+        if plant_seq_str:
+            try:
+                plant_sequence_number = int(plant_seq_str)
+                print(f"Using provided plant sequence number: {plant_sequence_number}")
+            except (ValueError, TypeError):
+                print(f"Invalid plant sequence number: {plant_seq_str}, will calculate automatically")
+                # Will calculate automatically below
+        
+        # If plant_sequence_number is not provided or invalid, calculate it
+        if not plant_sequence_number:
+            # Get the highest plant_sequence_number for this session
+            max_sequence = Observation.objects.filter(session=session).aggregate(Max('plant_sequence_number'))['plant_sequence_number__max'] or 0
+            plant_sequence_number = max_sequence + 1
+            print(f"Calculated plant sequence number: {plant_sequence_number}")
+        
+        # Find existing draft or create a new observation
+        observation = None
+        if draft_id:
+            try:
+                observation = Observation.objects.get(id=draft_id, session=session, status='draft')
+                print(f"Finalizing draft observation ID: {draft_id}")
+            except Observation.DoesNotExist:
+                print(f"Draft ID {draft_id} not found or not a draft, creating new observation")
+        
+        if not observation:
+            print("Creating new observation")
+            observation = Observation(
+                session=session,
+                plant_sequence_number=plant_sequence_number,
+                notes=notes
+            )
+        else:
+            # Update draft fields
+            observation.notes = notes
+            observation.plant_sequence_number = plant_sequence_number
+            
+        # Set GPS data
+        observation.latitude = Decimal(request.POST.get('latitude')) if request.POST.get('latitude') else None
+        observation.longitude = Decimal(request.POST.get('longitude')) if request.POST.get('longitude') else None
+        observation.gps_accuracy = Decimal(request.POST.get('gps_accuracy')) if request.POST.get('gps_accuracy') else None
+        observation.observation_time = timezone.now()
+        observation.status = 'completed'  # Mark as completed
+        
+        # Save the observation
+        observation.save()
+        
+        # Set M2M fields after saving
+        if pest_ids:
+            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
+        else:
+            observation.pests_observed.clear()
+            
+        if disease_ids:
+            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+        else:
+            observation.diseases_observed.clear()
+            
+        # Handle image uploads
+        images = request.FILES.getlist('images')
+        print(f"Received {len(images)} files for observation {observation.id}")
+        
+        for img_file in images:
+            try:
+                print(f"Processing image: {img_file.name}, size={img_file.size}, content_type={img_file.content_type}")
+                
+                # Create the image record
+                image_obj = ObservationImage.objects.create(
+                    observation=observation,
+                    image=img_file
                 )
-                # M2M fields will be set after initial save
-
-            # Common fields (GPS, status, time) for both new and draft updates
-            observation.latitude = Decimal(request.POST.get('latitude')) if request.POST.get('latitude') else None
-            observation.longitude = Decimal(request.POST.get('longitude')) if request.POST.get('longitude') else None
-            observation.gps_accuracy = Decimal(request.POST.get('gps_accuracy')) if request.POST.get('gps_accuracy') else None
-            observation.observation_time = timezone.now() # Set time on final save
-            observation.status = 'completed' # Mark as completed
-
-            observation.save() # Save observation to get ID if new, or save updates
-
-            # Set M2M fields only after saving for new observations
-            if not draft_id:
-                 observation.pests_observed.set(form.cleaned_data['pests_observed'])
-                 observation.diseases_observed.set(form.cleaned_data['diseases_observed'])
-
-            # Handle Multiple Image Uploads
-            images = request.FILES.getlist('images') # Use the name from ObservationForm
-            print(f"Received {len(images)} files for observation {observation.id}.") # Debug
-            for img_file in images:
-                ObservationImage.objects.create(observation=observation, image=img_file)
-                print(f"Saved image {img_file.name} for observation {observation.id}") # Debug
-
-            # Prepare data for the success response (e.g., for updating the UI)
-            # Convert Decimal fields to string for JSON serialization
-            response_data = {
-                'status': 'success',
-                'observation': {
-                    'id': observation.id,
-                    'time': observation.observation_time.strftime('%H:%M:%S'),
-                    'latitude': str(observation.latitude) if observation.latitude else None,
-                    'longitude': str(observation.longitude) if observation.longitude else None,
-                    'pests': list(observation.pests_observed.values_list('name', flat=True)),
-                    'diseases': list(observation.diseases_observed.values_list('name', flat=True)),
-                    'notes': observation.notes,
-                    'plant_sequence_number': observation.plant_sequence_number,
-                    # Include image URLs if needed by the template
-                    'image_urls': [img.image.url for img in observation.images.all()]
-                },
-                 # Send back counts for progress update
-                'observation_count': Observation.objects.filter(session=session, status='completed').count()
+                print(f"Saved image {img_file.name} (ID: {image_obj.id}) for observation {observation.id}")
+            except Exception as img_error:
+                print(f"Error saving image {img_file.name}: {img_error}")
+                import traceback
+                traceback.print_exc()
+        
+        # Calculate counts for the response
+        completed_observations = Observation.objects.filter(session=session, status='completed')
+        completed_count = completed_observations.count()
+        
+        # Fix the reverse relationship names
+        unique_pests_count = Pest.objects.filter(observations__in=completed_observations).distinct().count()
+        unique_diseases_count = Disease.objects.filter(observations__in=completed_observations).distinct().count()
+        
+        # Prepare response data
+        response_data = {
+            'status': 'success',
+            'observation': {
+                'id': observation.id,
+                'time': observation.observation_time.strftime('%I:%M %p').lstrip('0'),
+                'latitude': str(observation.latitude) if observation.latitude else None,
+                'longitude': str(observation.longitude) if observation.longitude else None,
+                'pests': [{'name': p.name} for p in observation.pests_observed.all()],
+                'diseases': [{'name': d.name} for d in observation.diseases_observed.all()],
+                'notes': observation.notes,
+                'plant_sequence_number': observation.plant_sequence_number,
+                'images': [{'url': img.image.url} for img in observation.images.all()]
+            },
+            'counts': {
+                'completed': completed_count,
+                'unique_pests': unique_pests_count,
+                'unique_diseases': unique_diseases_count
             }
-            return JsonResponse(response_data)
-
-        except Exception as e:
-            # Log the error
-            print(f"Error saving observation: {e}")
-            import traceback
-            traceback.print_exc()
-            return JsonResponse({'status': 'error', 'message': f'Error saving observation: {e}'}, status=500)
-    else:
-        # Form validation failed
-        print(f"Observation form errors: {form.errors.as_json()}")
-        return JsonResponse({'status': 'error', 'message': 'Invalid data submitted.', 'errors': form.errors.as_json()}, status=400)
+        }
+        
+        return JsonResponse(response_data)
+        
+    except SurveySession.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Survey session not found.'}, status=404)
+    except Exception as e:
+        # Log the error
+        print(f"Error saving observation: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': f'Error saving observation: {e}'}, status=500)
 
 
 @csrf_exempt # TODO: Replace with proper auth

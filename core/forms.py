@@ -3,6 +3,20 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from decimal import Decimal
+from django.forms.widgets import FileInput
+
+class MultipleFileInput(FileInput):
+    """
+    Custom file input widget that supports multiple file upload.
+    """
+    def __init__(self, attrs=None):
+        super().__init__(attrs)
+        self.attrs['multiple'] = 'multiple'
+        
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        context['widget']['attrs']['multiple'] = 'multiple'
+        return context
 
 from .models import (
     Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region,
@@ -236,7 +250,7 @@ class ObservationForm(forms.ModelForm):
         required=False
     )
     images = forms.FileField(
-        widget=forms.FileInput(), 
+        widget=MultipleFileInput(attrs={'accept': 'image/*'}), 
         required=False,
         label="Upload Images (Optional)",
         help_text="Select one or more images related to this observation."

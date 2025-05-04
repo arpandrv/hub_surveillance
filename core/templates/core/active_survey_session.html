@@ -93,9 +93,10 @@
         <p class="text-muted small">Ensure GPS is enabled and stable before saving each observation.</p>
         <hr>
         
-        {# GPS Status Area #}
-        <div id="gps-status" class="alert alert-secondary small mb-3"> 
-            {# Content updated by JS #}
+        {# GPS Status Area - Improved Structure #}
+        <div id="gps-status" class="alert alert-secondary small mb-3 d-flex align-items-center">
+            <span id="gps-icon" class="me-2"><i class="bi bi-hourglass-split"></i></span> {# Placeholder Icon #}
+            <span id="gps-text">Acquiring GPS signal...</span> {# Placeholder Text #}
         </div>
         <div id="gps-error-message" class="alert alert-danger small mb-3" style="display: none;"></div>
 
@@ -106,7 +107,7 @@
         </div>
         
         {# Render the Observation Form #}
-        {% if observation_form %}
+        {% if form %}
             {# Add session_id to the form tag data attribute for easy JS access #}
             <form id="observation-form" method="post" enctype="multipart/form-data" data-session-id="{{ session.session_id }}">
                 {% csrf_token %}
@@ -116,29 +117,29 @@
                 <input type="hidden" name="gps_accuracy" id="id_gps_accuracy">
                 
                 {# Render fields manually for better control #}
-                <div class="mb-3">
-                    {{ observation_form.plant_sequence_number.label_tag }} 
-                    {{ observation_form.plant_sequence_number }}
-                    {% if observation_form.plant_sequence_number.help_text %}
-                    <div class="form-text">{{ observation_form.plant_sequence_number.help_text }}</div>
-                    {% endif %}
-                    {% for error in observation_form.plant_sequence_number.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                {# Hide Plant Sequence Number - Will be set automatically #}
+                {# Hidden field for plant_sequence_number #}
+                <input type="hidden" id="id_plant_sequence_number" name="plant_sequence_number" value="">
+                {% if form.plant_sequence_number.errors %}
+                <div class="alert alert-danger small" id="sequence-number-error" style="display: none;">
+                    {% for error in form.plant_sequence_number.errors %}{{ error }}{% endfor %}
                 </div>
+                {% endif %}
 
                 <div class="mb-3">
-                    <label class="form-label">{{ observation_form.pests_observed.label }}</label>
+                    <label class="form-label">{{ form.pests_observed.label }}</label>
                     <div class="form-check-scrollable border rounded p-2" style="max-height: 150px; overflow-y: auto;">
-                        {{ observation_form.pests_observed }}
+                        {{ form.pests_observed }}
                     </div>
-                    {% for error in observation_form.pests_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                    {% for error in form.pests_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">{{ observation_form.diseases_observed.label }}</label>
+                    <label class="form-label">{{ form.diseases_observed.label }}</label>
                     <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
-                        {{ observation_form.diseases_observed }}
+                        {{ form.diseases_observed }}
                     </div>
-                    {% for error in observation_form.diseases_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                    {% for error in form.diseases_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                 </div>
 
                 {# Collapsible Notes #}
@@ -148,27 +149,42 @@
                     </a>
                     <div class="collapse" id="collapseNotes">
                       <div class="card card-body p-2">
-                         {{ observation_form.notes.label_tag }}
-                         {{ observation_form.notes }}
-                         {% for error in observation_form.notes.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                         {{ form.notes.label_tag }}
+                         {{ form.notes }}
+                         {% for error in form.notes.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                       </div>
                     </div>
                 </div>
 
                 <div class="mb-3">
-                    {{ observation_form.image.label_tag }}
-                    {{ observation_form.image }}
-                    {% for error in observation_form.image.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                    <label class="form-label">Upload Images (Optional)</label>
+                    
+                    <input type="file" id="fileElem" multiple accept="image/*" style="display:none" onchange="handleFiles(this.files)">
+                    <button type="button" id="fileSelect" class="btn btn-primary">Select Images to Upload</button>
+                    
+                    <small class="form-text text-muted d-block mt-2">You can select multiple images at once.</small>
+                    
+                    <div id="gallery" class="mt-3 d-flex flex-wrap gap-2">
+                        <!-- Images will appear here -->
+                    </div>
+                    
+                    <div id="fileList" class="mt-2">
+                        <p>No files selected!</p>
+                    </div>
                 </div>
 
                 <button type="submit" id="save-observation-btn" class="btn btn-success" disabled>
-                     <i class="bi bi-check-lg me-1"></i> Save Observation at Current Location
+                     {# ADDED: Spinner (initially hidden) #}
+                     <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
+                     <i class="bi bi-check-lg me-1"></i> 
+                     <span class="button-text">Save Observation at Current Location</span>
                 </button>
                 <span id="save-status" class="ms-2"></span> {# For showing save status #}
                 <span id="auto-save-status" class="ms-2 text-muted small"></span> {# For showing auto-save status #}
             </form>
         {% else %}
-            <p class="text-danger">Observation form is not configured yet.</p>
+            {# This message should now only appear if the form is genuinely missing from the context #}
+            <p class="text-danger">Observation form could not be loaded.</p> 
         {% endif %}
         
         {# Explicit Warning #}
@@ -198,32 +214,30 @@
             <li class="list-group-item" data-observation-id="{{ obs.id }}">
                 <strong>Time:</strong> {{ obs.observation_time|date:"P" }} 
                 <small>({{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }})</small>
-                {% if obs.pests_observed.exists or obs.diseases_observed.exists %}
-                   - Findings: 
-                   {% for p in obs.pests_observed.all %}<span class="badge bg-danger">{{ p.name }}</span> {% endfor %}
-                   {% for d in obs.diseases_observed.all %}<span class="badge bg-warning text-dark">{{ d.name }}</span> {% endfor %}
-                {% endif %}
-                 {% if obs.notes %}<small class="d-block text-muted">Notes: {{ obs.notes|truncatechars:50 }}</small>{% endif %}
-                 {# Revert to checking first image #}
-                 {% with first_image=obs.images.first %}
-                    {% if first_image %}
-                        <div class="mt-2">
-                            <img src="{{ first_image.image.url }}" alt="Observation image" class="img-thumbnail me-1" style="height: 50px; width: auto;">
+                <br>
+                {% if obs.pests_observed.all %} Pests: {% for pest in obs.pests_observed.all %}<span class="badge bg-danger-subtle text-danger-emphasis me-1">{{ pest.name }}</span>{% endfor %}<br>{% endif %}
+                {% if obs.diseases_observed.all %} Diseases: {% for disease in obs.diseases_observed.all %}<span class="badge bg-warning-subtle text-warning-emphasis me-1">{{ disease.name }}</span>{% endfor %}<br>{% endif %}
+                {% if obs.notes %}<small class="text-muted d-block">Notes: {{ obs.notes|truncatewords:15 }}</small>{% endif %}
+                
+                {# ADDED: Display Image Thumbnails if they exist #}
+                {% with obs_images=obs.images.all %}
+                    {% if obs_images %}
+                        <div class="mt-2 observation-images">
+                            {% for img_obj in obs_images %}
+                                {% if img_obj.image %} {# Check if image file exists #}
+                                <img src="{{ img_obj.image.url }}" alt="Observation image {{ forloop.counter }}" class="img-thumbnail" style="height: 50px; width: auto; margin-right: 5px;">
+                                {% endif %}
+                            {% endfor %}
                         </div>
                     {% endif %}
-                 {% endwith %}
+                {% endwith %}
             </li>
+            {% empty %}
+                <div id="observation-list-empty" class="card-body text-center text-muted">
+                    No observations recorded yet for this session.
+                </div>
             {% endfor %}
         </ul>
-        <div id="observation-list-empty" class="card-body text-center text-muted" {% if observations %}style="display: none;"{% endif %}>
-            No observations recorded yet for this session.
-        </div>
-        {# Removed slice limit message - list will grow #}
-        {# {% if observations.count > 10 %}
-        <div class="card-footer text-center small">
-             Showing latest 10 observations.
-        </div>
-        {% endif %} #}
     </div>
 
   </div> {# End Right Column #}
@@ -235,6 +249,8 @@
 {{ completed_plants|default:0|json_script:"completed-plants-data" }}
 {{ session.session_id|json_script:"session-id-data" }}
 {{ latest_draft_json|default:"null"|json_script:"latest-draft-data" }}
+{{ recommended_pests_ids|safe|json_script:"recommended-pests-json" }}
+{{ recommended_diseases_ids|safe|json_script:"recommended-diseases-json" }}
 
 {% endblock %}
 
@@ -244,8 +260,92 @@
 {# <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script> #}
 
 <script>
+// Google solution for file upload
+window.URL = window.URL || window.webkitURL;
+
+const fileSelect = document.getElementById("fileSelect"),
+    fileElem = document.getElementById("fileElem"),
+    fileList = document.getElementById("fileList");
+
+fileSelect.addEventListener("click", function (e) {
+  if (fileElem) {
+    fileElem.click();
+  }
+}, false);
+
+// Process selected files
+function handleFiles(files) {
+  if (!files.length) {
+    fileList.innerHTML = "<p>No files selected!</p>";
+  } else {
+    fileList.innerHTML = "";
+    const list = document.createElement("ul");
+    list.className = "list-group";
+    fileList.appendChild(list);
+    
+    // Add each file to the form (hidden) and create a file list
+    for (let i = 0; i < files.length; i++) {
+      const li = document.createElement("li");
+      li.className = "list-group-item d-flex justify-content-between align-items-center";
+      list.appendChild(li);
+      
+      const info = document.createElement("span");
+      info.innerHTML = files[i].name + ": " + (files[i].size / 1024).toFixed(1) + " KB";
+      li.appendChild(info);
+      
+      // Create image thumbnail
+      const img = document.createElement("img");
+      img.src = window.URL.createObjectURL(files[i]);
+      img.height = 60;
+      img.onload = function() {
+        window.URL.revokeObjectURL(this.src);
+      };
+      li.prepend(img);
+      
+      // Show in gallery too
+      const gallery = document.getElementById("gallery");
+      if (gallery) {
+        const imgContainer = document.createElement("div");
+        imgContainer.className = "position-relative";
+        
+        const thumbImg = document.createElement("img");
+        thumbImg.src = window.URL.createObjectURL(files[i]);
+        thumbImg.className = "img-thumbnail";
+        thumbImg.style.height = "100px";
+        thumbImg.style.width = "auto";
+        
+        imgContainer.appendChild(thumbImg);
+        gallery.appendChild(imgContainer);
+      }
+      
+      // Add to form
+      addFileToForm(files[i], "images");
+    }
+  }
+}
+
+// Add file to form function
+function addFileToForm(file, fieldName) {
+  // Create a hidden input field
+  const input = document.createElement("input");
+  input.type = "file";
+  input.name = fieldName;
+  input.style.display = "none";
+  
+  // Create a DataTransfer object and add the file
+  const dataTransfer = new DataTransfer();
+  dataTransfer.items.add(file);
+  input.files = dataTransfer.files;
+  
+  // Add to the form
+  document.getElementById("observation-form").appendChild(input);
+}
+</script>
+
+<script>
 document.addEventListener('DOMContentLoaded', function() {
-    console.log("Active survey session page loaded.");
+    console.log("Active survey session page loaded - initializing...");
+    // Store important DOM elements 
     const saveBtn = document.getElementById('save-observation-btn');
     const finishBtn = document.getElementById('finish-session-btn');
     const gpsStatus = document.getElementById('gps-status');
@@ -253,10 +353,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const lonInput = document.getElementById('id_longitude');
     const accInput = document.getElementById('id_gps_accuracy');
     const form = document.getElementById('observation-form');
-    const formFieldsContainer = document.getElementById('observation-form-fields'); // Assuming a container for fields
     const gpsErrorMessage = document.getElementById('gps-error-message');
-    const saveStatusSpan = document.getElementById('save-status'); // Get status span
-    const autoSaveStatusSpan = document.getElementById('auto-save-status'); // Get auto-save status span
+    const saveStatusSpan = document.getElementById('save-status');
+    const autoSaveStatusSpan = document.getElementById('auto-save-status');
+    
     // Read data passed via json_script
     const targetPlants = JSON.parse(document.getElementById('target-plants-data').textContent);
     let completedPlants = JSON.parse(document.getElementById('completed-plants-data').textContent);
@@ -264,62 +364,84 @@ document.addEventListener('DOMContentLoaded', function() {
     const observationList = document.getElementById('observation-list');
     const observationListEmpty = document.getElementById('observation-list-empty');
     const observationCountSpan = document.getElementById('observation-count');
-    // Add IDs for progress card counts
     const completedObsCountSpan = document.getElementById('completed-obs-count');
     const uniquePestsCountSpan = document.getElementById('unique-pests-count');
     const uniqueDiseasesCountSpan = document.getElementById('unique-diseases-count');
-
-    // --- Function to add observation to list --- 
-    function addObservationToList(obsData) {
-        if (!observationList || !obsData) return;
-
-        // Hide the 'empty' message if it's visible
-        if (observationListEmpty) observationListEmpty.style.display = 'none';
-
-        // Create new list item element
-        const li = document.createElement('li');
-        li.className = 'list-group-item';
-        li.dataset.observationId = obsData.id;
-
-        let findingsHTML = '';
-        if ((obsData.pests && obsData.pests.length > 0) || (obsData.diseases && obsData.diseases.length > 0)) {
-            findingsHTML += ' - Findings: ';
-            obsData.pests.forEach(p => { findingsHTML += `<span class="badge bg-danger">${p}</span> `; });
-            obsData.diseases.forEach(d => { findingsHTML += `<span class="badge bg-warning text-dark">${d}</span> `; });
-        }
-
-        let notesHTML = '';
-        if (obsData.notes_truncated) {
-            notesHTML = `<small class="d-block text-muted">Notes: ${obsData.notes_truncated}</small>`;
+    
+    // Check for desktop testing mode right away
+    const urlParams = new URLSearchParams(window.location.search);
+    const isDesktopTesting = urlParams.get('force_desktop') === 'true';
+    
+    if (isDesktopTesting) {
+        console.log('Desktop testing mode detected - enabling save button');
+        if (saveBtn) {
+            saveBtn.disabled = false;
         }
         
-        let imagesHTML = '';
-        // Use the single image_url data from the API response
-        if (obsData.image_url) {
-             imagesHTML = `
-             <div class="mt-2">
-                 <img src="${obsData.image_url}" alt="Observation image" class="img-thumbnail me-1" style="height: 50px; width: auto;">
-             </div>`;
-        }
-
-        li.innerHTML = `
-            <strong>Time:</strong> ${obsData.time_formatted} 
-            <small>(${obsData.latitude || '-'}, ${obsData.longitude || '-'})</small>
-            ${findingsHTML}
-            ${notesHTML}
-            ${imagesHTML}
-        `;
-
-        // Prepend to the list
-        observationList.insertBefore(li, observationList.firstChild);
+        // Set dummy GPS values if needed
+        if (latInput) latInput.value = '34.052235';
+        if (lonInput) lonInput.value = '-118.243683';
+        if (accInput) accInput.value = '10.0';
         
-        // Update count in header
-        if (observationCountSpan) {
-            observationCountSpan.textContent = completedPlants; // Use the updated count
+        // Update GPS status display if it exists
+        if (gpsStatus) {
+            gpsStatus.classList.remove('alert-secondary', 'alert-warning', 'alert-danger');
+            gpsStatus.classList.add('alert-success');
+            const iconSpan = gpsStatus.querySelector('#gps-icon');
+            const textSpan = gpsStatus.querySelector('#gps-text');
+            if (iconSpan) iconSpan.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
+            if (textSpan) textSpan.textContent = 'Desktop testing mode activated';
         }
     }
 
-    // --- Function to update UI elements (progress, finish button, counts) ---
+    // --- Function to add observation to list --- 
+    function addObservationToList(obsData) {
+        const list = document.getElementById('observation-list');
+        const emptyMsg = document.getElementById('observation-list-empty');
+        if (!list) return;
+
+        // Hide empty message if it exists and is visible
+        if (emptyMsg && emptyMsg.style.display !== 'none') {
+            emptyMsg.style.display = 'none';
+        }
+
+        // Create list item element
+        const li = document.createElement('li');
+        li.classList.add('list-group-item');
+        li.dataset.observationId = obsData.id;
+
+        let content = `
+            <strong>Time:</strong> ${obsData.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
+            <small>(${parseFloat(obsData.latitude).toFixed(5)}, ${parseFloat(obsData.longitude).toFixed(5)})</small>
+            <br>
+        `;
+
+        if (obsData.pests && obsData.pests.length > 0) {
+            content += `Pests: ${obsData.pests.map(p => `<span class="badge bg-danger-subtle text-danger-emphasis me-1">${p.name}</span>`).join(' ')}<br>`;
+        }
+        if (obsData.diseases && obsData.diseases.length > 0) {
+            content += `Diseases: ${obsData.diseases.map(d => `<span class="badge bg-warning-subtle text-warning-emphasis me-1">${d.name}</span>`).join(' ')}<br>`;
+        }
+        if (obsData.notes) {
+            content += `<small class="text-muted d-block">Notes: ${obsData.notes}</small>`;
+        }
+
+        // Add Image Thumbnails
+        if (obsData.images && obsData.images.length > 0) {
+            content += '<div class="mt-2 observation-images">';
+            obsData.images.forEach((img, index) => {
+                content += `<img src="${img.url}" alt="Observation image ${index + 1}" class="img-thumbnail" style="height: 50px; width: auto; margin-right: 5px;">`;
+            });
+            content += '</div>';
+        }
+
+        li.innerHTML = content;
+
+        // Add to the top of the list
+        list.insertBefore(li, list.firstChild);
+    }
+
+    // --- Function to update UI elements (progress, finish button, counts) --- //
     function updateUI(newCounts = null) { // Accept optional counts object
         // Use live count or count from API response
         let currentCompleted = newCounts ? newCounts.completed : completedPlants;
@@ -360,56 +482,98 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // 1. Get GPS Location (Initial check and subsequent checks)
-    function getGPSLocation(isInitialCheck = false) {
+    function getGPSLocation(initial = false) {
+        // Check for desktop testing mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDesktopTesting = urlParams.get('force_desktop') === 'true';
+        
+        // Handle desktop testing mode
+        if (isDesktopTesting) {
+            console.log('Desktop testing mode detected in getGPSLocation(), bypassing GPS requirements');
+            
+            // Set dummy values for testing if not already set
+            const latInput = document.getElementById('id_latitude');
+            const lonInput = document.getElementById('id_longitude');
+            const accuracyInput = document.getElementById('id_gps_accuracy');
+            const saveBtn = document.getElementById('save-observation-btn');
+            
+            if(latInput && !latInput.value) latInput.value = '34.052235';
+            if(lonInput && !lonInput.value) lonInput.value = '-118.243683';
+            if(accuracyInput && !accuracyInput.value) accuracyInput.value = '10.0';
+            
+            // Update GPS display
+            updateGpsDisplay('ready', 'Desktop testing mode (dummy location)', 10.0);
+            
+            // Make sure the form is enabled
+            enableForm();
+            hideGpsError();
+            
+            // Directly enable the save button
+            if (saveBtn) saveBtn.disabled = false;
+            
+            return; // Skip the actual GPS code
+        }
+        
+        // Normal GPS acquisition for mobile devices
         if (!navigator.geolocation) {
-            gpsStatus.className = 'alert alert-danger small';
-            gpsStatus.innerHTML = '<i class="bi bi-x-octagon-fill me-1"></i> Geolocation is not supported by your browser.';
-            disableForm("Geolocation not supported.");
+            updateGpsDisplay('error', 'Geolocation not supported by your browser.');
+            disableForm('GPS not available. Please use a device with GPS support.');
             return;
         }
 
-        gpsStatus.className = 'alert alert-warning small';
-        gpsStatus.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring high accuracy GPS... Please wait.';
-        disableForm("Acquiring GPS...");
+        const latInput = document.getElementById('id_latitude');
+        const lonInput = document.getElementById('id_longitude');
+        const accuracyInput = document.getElementById('id_gps_accuracy');
         
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const latitude = position.coords.latitude;
-                const longitude = position.coords.longitude;
-                const accuracy = position.coords.accuracy;
-                
-                console.log(`GPS Acquired: Lat: ${latitude}, Lon: ${longitude}, Acc: ${accuracy}m`);
-                gpsStatus.className = 'alert alert-success small';
-                gpsStatus.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i> GPS Lock Acquired (Accuracy: ${accuracy.toFixed(1)}m)`;
-                
-                if(latInput) latInput.value = latitude.toFixed(9);
-                if(lonInput) lonInput.value = longitude.toFixed(9);
-                if(accInput) accInput.value = accuracy.toFixed(2);
-                enableForm(); // Enable form fields and save button
-            },
-            (error) => {
-                gpsStatus.className = 'alert alert-danger small';
-                let errorMsg = 'Error acquiring GPS: ';
-                switch(error.code) {
-                    case error.PERMISSION_DENIED: errorMsg += "User denied Geolocation request."; break;
-                    case error.POSITION_UNAVAILABLE: errorMsg += "Location information unavailable."; break;
-                    case error.TIMEOUT: errorMsg += "Location request timed out."; break;
-                    default: errorMsg += "An unknown error occurred."; break;
-                }
-                gpsStatus.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-1"></i> ${errorMsg}`;
-                showGpsError(errorMsg); // Show persistent error
-                console.error(errorMsg);
-                disableForm(errorMsg); // Keep form disabled
-            },
-            {
-                enableHighAccuracy: true, // Request high accuracy
-                timeout: 15000, // Increased timeout
-                maximumAge: 0 // Force fresh reading
+        // If this is the initial check, show "acquiring" message
+        if (initial) {
+            updateGpsDisplay('waiting', 'Acquiring GPS signal...');
+        }
+        
+        navigator.geolocation.getCurrentPosition(position => {
+            // Success handler
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            console.log(`GPS Acquired: Lat: ${latitude}, Lon: ${longitude}, Acc: ${accuracy}m`);
+            updateGpsDisplay('ready', '', accuracy);
+            
+            if(latInput) latInput.value = latitude.toFixed(9);
+            if(lonInput) lonInput.value = longitude.toFixed(9);
+            if(accuracyInput) accuracyInput.value = accuracy.toFixed(1);
+            
+            // Enable the form once we have a GPS location
+            enableForm();
+            hideGpsError(); // Hide any previous error
+        }, error => {
+            // Error handler
+            let errorMsg = "GPS Error: ";
+            switch(error.code) {
+                case error.PERMISSION_DENIED: errorMsg += "Location permission denied."; break;
+                case error.POSITION_UNAVAILABLE: errorMsg += "Location information unavailable."; break;
+                case error.TIMEOUT: errorMsg += "Location request timed out."; break;
+                default: errorMsg += "An unknown error occurred."; break;
             }
-        );
+            updateGpsDisplay('error', errorMsg);
+            showGpsError(errorMsg); // Show persistent error
+            console.error(errorMsg);
+            
+            // Check again if we're in desktop mode before disabling form
+            if (!isDesktopTesting) {
+                disableForm(errorMsg);
+            } else {
+                console.log('GPS error, but in desktop testing mode, so keeping form enabled');
+                enableForm();
+            }
+        }, {
+            enableHighAccuracy: true, // Request high accuracy
+            timeout: 10000, // 10 second timeout
+            maximumAge: 30000 // Accept a position no older than 30 seconds
+        });
     }
 
-    // --- Function to add observation to list --- 
+    // --- Function for debounced auto-save --- 
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -426,36 +590,20 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!form) return;
         console.log('Attempting auto-save...');
         autoSaveStatusSpan.textContent = 'Saving draft...';
-        autoSaveStatusSpan.className = 'ms-2 text-info small'; // Indicate saving
+        autoSaveStatusSpan.className = 'ms-2 text-info small';
 
-        const formData = new FormData(); // Use FormData, but only include non-file fields for auto-save
-        formData.append('session_id', JSON.parse(document.getElementById('session-id-data').textContent));
-        formData.append('csrfmiddlewaretoken', form.querySelector('[name=csrfmiddlewaretoken]').value);
-        // Only add fields relevant for draft saving (no images)
-        const plantSeqNum = form.querySelector('#id_plant_sequence_number');
-        if (plantSeqNum && plantSeqNum.value) {
-             formData.append('plant_sequence_number', plantSeqNum.value);
+        // Create FormData directly from the form
+        const formData = new FormData(form);
+        
+        // Set plant_sequence_number to a valid value if empty to avoid validation errors
+        const plantSeqNum = formData.get('plant_sequence_number');
+        if (!plantSeqNum || plantSeqNum === '') {
+            formData.set('plant_sequence_number', '999'); // Use temporary value for draft
         }
-        // Add selected pests
-        form.querySelectorAll('input[name="pests_observed"]:checked').forEach(input => {
-            formData.append('pests_observed', input.value);
-        });
-        // Add selected diseases
-        form.querySelectorAll('input[name="diseases_observed"]:checked').forEach(input => {
-            formData.append('diseases_observed', input.value);
-        });
-        // Add notes
-        const notes = form.querySelector('#id_notes');
-        if (notes && notes.value) {
-             formData.append('notes', notes.value);
-        }
-
-        // Add latest known GPS if available (optional for draft)
-        const latInput = document.getElementById('id_latitude');
-        const lonInput = document.getElementById('id_longitude');
-        if (latInput.value && lonInput.value) {
-            formData.append('latitude', latInput.value);
-            formData.append('longitude', lonInput.value);
+        
+        // Ensure session_id is included
+        if (!formData.has('session_id')) {
+            formData.append('session_id', JSON.parse(document.getElementById('session-id-data').textContent));
         }
 
         try {
@@ -472,8 +620,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('Auto-save successful:', result);
                 autoSaveStatusSpan.textContent = 'Draft saved.';
                 autoSaveStatusSpan.className = 'ms-2 text-success small';
-                // Optionally store draft ID if needed later
-                // form.dataset.draftId = result.draft_id;
+                
+                // Store the draft ID for future updates
+                if (result.draft_id) {
+                    form.dataset.draftId = result.draft_id;
+                }
             } else {
                 console.error('Auto-save failed:', response.status, await response.text());
                 autoSaveStatusSpan.textContent = 'Error saving draft.';
@@ -493,9 +644,14 @@ document.addEventListener('DOMContentLoaded', function() {
          if (!draft || !form) return;
          console.log('Loading draft data:', draft);
 
-         // Plant Sequence Number
-         const plantSeqInput = form.querySelector('#id_plant_sequence_number');
-         if (plantSeqInput && draft.plant_sequence_number) {
+         // Store draft ID for future updates
+         if (draft.id) {
+             form.dataset.draftId = draft.id;
+         }
+
+         // Plant Sequence Number (only for completed observations)
+         const plantSeqInput = document.getElementById('id_plant_sequence_number');
+         if (plantSeqInput && draft.plant_sequence_number && draft.plant_sequence_number !== '999') {
              plantSeqInput.value = draft.plant_sequence_number;
          }
 
@@ -522,135 +678,139 @@ document.addEventListener('DOMContentLoaded', function() {
              // Ensure notes section is visible if there are notes
              const notesCollapse = document.getElementById('collapseNotes');
              if (notesCollapse && !notesCollapse.classList.contains('show')) {
-                 new bootstrap.Collapse(notesCollapse).show();
+                 const bsCollapse = new bootstrap.Collapse(notesCollapse);
+                 bsCollapse.show();
              }
          }
+         
+         // Set GPS values if present
+         if (draft.latitude && draft.longitude) {
+             const latInput = document.getElementById('id_latitude');
+             const lonInput = document.getElementById('id_longitude');
+             const accInput = document.getElementById('id_gps_accuracy');
+             
+             if (latInput) latInput.value = draft.latitude;
+             if (lonInput) lonInput.value = draft.longitude;
+             if (accInput && draft.gps_accuracy) accInput.value = draft.gps_accuracy;
+             
+             // Update GPS display if loaded from draft
+             updateGpsDisplay('ready', '', draft.gps_accuracy ? parseFloat(draft.gps_accuracy) : 10);
+         }
+         
          autoSaveStatusSpan.textContent = 'Draft loaded.'; // Indicate draft loaded
          autoSaveStatusSpan.className = 'ms-2 text-muted small';
     }
 
-    // --- Event Listeners --- //
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log('DOM fully loaded and parsed');
-        // ADDED: Set the multiple attribute for the file input
-        const imagesInput = document.getElementById('id_images'); // Default Django ID for the 'images' field
-        if (imagesInput) {
-            imagesInput.multiple = true;
-            console.log('Set multiple attribute on #id_images');
-        }
+    // --- UI Enhancement Functions --- //
+    function highlightRecommendedItems() {
+        try {
+            // Get the recommended pest and disease IDs from the JSON script tags
+            const recommendedPestIds = JSON.parse(document.getElementById('recommended-pests-json').textContent || '[]');
+            const recommendedDiseaseIds = JSON.parse(document.getElementById('recommended-diseases-json').textContent || '[]');
+            
+            console.log('Highlighting recommended pests:', recommendedPestIds);
+            console.log('Highlighting recommended diseases:', recommendedDiseaseIds);
 
-        if (form) {
-            getGPSLocation(true); // Initial GPS check
-            loadDraftData(JSON.parse(document.getElementById('latest-draft-data').textContent)); // Load draft data
-
-            // Attach auto-save listeners to form inputs
-            form.querySelectorAll('input, textarea, select').forEach(element => {
-                // Exclude file input from triggering auto-save
-                if (element.type !== 'file' && element.name !== 'csrfmiddlewaretoken') {
-                    element.addEventListener('input', debouncedAutoSave);
-                    element.addEventListener('change', debouncedAutoSave); // For checkboxes/selects
+            // Highlight recommended pests
+            document.querySelectorAll('input[name="pests_observed"]').forEach(input => {
+                if (recommendedPestIds.includes(parseInt(input.value))) {
+                    const label = input.closest('label') || input.parentElement;
+                    if (label) {
+                        label.insertAdjacentHTML('beforeend', ' <span class="badge bg-info-subtle text-info-emphasis">Recommended</span>');
+                    }
                 }
             });
 
-        } else {
-            console.error('Observation form not found.');
-        }
-
-        // Initial UI update based on potentially pre-loaded counts
-        updateUI(); 
-
-        // Finish button logic (already exists)
-        if (finishBtn) {
-            // ... (existing finish button logic) ...
-        }
-    });
-
-    // --- Handle Form Submission (AJAX for full save) --- //
-    if (form) {
-        form.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            console.log('Save Observation button clicked');
-            saveStatusSpan.textContent = 'Saving...';
-            saveStatusSpan.className = 'ms-2 text-info';
-            disableForm('Saving observation...'); // Disable form during save
-
-            const formData = new FormData(form);
-            // Append session_id explicitly if not already part of the form
-            if (!formData.has('session_id')) {
-                formData.append('session_id', JSON.parse(document.getElementById('session-id-data').textContent));
-            }
-
-            // Log FormData contents (for debugging)
-            // for (let [key, value] of formData.entries()) { 
-            //     console.log(key, value);
-            // }
-
-            try {
-                // Use the correct URL for creating/finalizing
-                const response = await fetch('{% url "core:api_create_observation" %}', {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest' // Important for Django request.is_ajax()
+            // Highlight recommended diseases
+            document.querySelectorAll('input[name="diseases_observed"]').forEach(input => {
+                if (recommendedDiseaseIds.includes(parseInt(input.value))) {
+                    const label = input.closest('label') || input.parentElement;
+                    if (label) {
+                        label.insertAdjacentHTML('beforeend', ' <span class="badge bg-info-subtle text-info-emphasis">Recommended</span>');
                     }
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log('Observation save successful:', result);
-                    saveStatusSpan.textContent = 'Saved!';
-                    saveStatusSpan.className = 'ms-2 text-success';
-                    addObservationToList(result.observation); // Add to the list
-                    updateUI(result.counts); // Update progress counters
-                    form.reset(); // Clear the form for the next entry
-                    autoSaveStatusSpan.textContent = ''; // Clear auto-save status
-                    // Re-enable form after successful save
-                    // Keep GPS check running
-                    hideGpsError();
-                    enableForm();
-
-                } else {
-                    const errorResult = await response.json(); // Try to get JSON error
-                    console.error('Observation save failed:', response.status, errorResult);
-                    saveStatusSpan.textContent = `Error: ${errorResult.error || 'Unknown error'}`;
-                    saveStatusSpan.className = 'ms-2 text-danger';
-                    enableForm(); // Re-enable form on error
                 }
-            } catch (error) {
-                console.error('Network error during observation save:', error);
-                saveStatusSpan.textContent = 'Network error';
-                saveStatusSpan.className = 'ms-2 text-danger';
-                enableForm(); // Re-enable form on error
-            }
-        });
+            });
+        } catch (error) {
+            console.error("Error highlighting recommended items:", error);
+        }
     }
-    // --- End Form Submission ---
 
-    // --- Finish Session Button Logic --- //
-    if (finishBtn) {
-        // ... (existing finish button logic) ...
+    function updateGpsDisplay(status, message = '', accuracy = null) {
+        const statusDiv = document.getElementById('gps-status');
+        const iconSpan = document.getElementById('gps-icon');
+        const textSpan = document.getElementById('gps-text');
+        
+        if (!statusDiv || !iconSpan || !textSpan) return;
+
+        // Reset classes
+        statusDiv.classList.remove('alert-secondary', 'alert-warning', 'alert-success', 'alert-danger');
+
+        switch (status) {
+            case 'waiting':
+                statusDiv.classList.add('alert-warning');
+                iconSpan.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+                textSpan.textContent = message || 'Acquiring GPS signal...';
+                break;
+            case 'ready':
+                statusDiv.classList.add('alert-success');
+                iconSpan.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
+                textSpan.textContent = `GPS Ready. Accuracy: ${accuracy !== null ? accuracy.toFixed(1) + 'm' : 'N/A'}`;
+                break;
+            case 'error':
+                statusDiv.classList.add('alert-danger');
+                iconSpan.innerHTML = '<i class="bi bi-x-octagon-fill"></i>';
+                textSpan.textContent = message || 'GPS Error.';
+                break;
+            default:
+                statusDiv.classList.add('alert-secondary');
+                iconSpan.innerHTML = '<i class="bi bi-question-circle"></i>';
+                textSpan.textContent = 'GPS status unknown.';
+        }
     }
-    // --- End Finish Session Logic ---
 
     // --- Helper functions to enable/disable form ---
     function disableForm(reason) {
+        // Check if we're in desktop testing mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDesktopTesting = urlParams.get('force_desktop') === 'true';
+        
+        if (isDesktopTesting) {
+            console.log("Desktop testing mode active - not disabling form despite reason: " + reason);
+            // Just show the reason but keep the form enabled
+            if (gpsErrorMessage) {
+                gpsErrorMessage.textContent = "Desktop testing mode: " + reason + " (form remains enabled)";
+                gpsErrorMessage.style.display = 'block';
+            }
+            return;
+        }
+        
+        // Normal behavior for mobile
         if (saveBtn) saveBtn.disabled = true;
-        // Optionally disable other form inputs
-        form.querySelectorAll('input, textarea, select').forEach(el => {
-           if(el.type !== 'hidden') el.disabled = true;
-        });
+        
+        // Disable checkboxes and textareas, but NOT hidden fields or file inputs
+        if (form) {
+            form.querySelectorAll('input[type="checkbox"], textarea').forEach(el => {
+                el.disabled = true;
+            });
+        }
+        
         showGpsError(reason);
-        gpsStatus.style.display = 'none'; // Hide the status spinner area
+        if (gpsStatus) gpsStatus.style.display = 'none'; // Hide the status spinner area
         console.warn("Form disabled: " + reason);
     }
 
     function enableForm() {
         if (saveBtn) saveBtn.disabled = false;
-        form.querySelectorAll('input, textarea, select').forEach(el => {
-             if(el.type !== 'hidden') el.disabled = false;
-        });
+        
+        // Enable all interactive form elements
+        if (form) {
+            form.querySelectorAll('input[type="checkbox"], textarea').forEach(el => {
+                el.disabled = false;
+            });
+        }
+        
         hideGpsError();
-        gpsStatus.style.display = 'block'; // Show status area again
+        if (gpsStatus) gpsStatus.style.display = 'block'; // Show status area again
         console.log("Form enabled.");
     }
 
@@ -667,7 +827,161 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // --- End Helper Functions ---
+    // --- Initialize page ---
+    if (form) {
+        getGPSLocation(true); // Initial GPS check
+
+        try {
+            loadDraftData(JSON.parse(document.getElementById('latest-draft-data').textContent)); // Load draft data
+        } catch (e) {
+            console.error("Error loading draft data:", e);
+        }
+
+        // Attach auto-save listeners to form inputs
+        form.querySelectorAll('input, textarea, select').forEach(element => {
+            // Exclude file input from triggering auto-save
+            if (element.type !== 'file' && element.name !== 'csrfmiddlewaretoken') {
+                element.addEventListener('input', debouncedAutoSave);
+                element.addEventListener('change', debouncedAutoSave); // For checkboxes/selects
+            }
+        });
+
+        // Handle form submission
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            console.log('Form submitted');
+            
+            const saveButton = document.getElementById('save-observation-btn');
+            const spinner = saveButton.querySelector('.spinner-border');
+            const buttonTextSpan = saveButton.querySelector('.button-text');
+            const buttonIcon = saveButton.querySelector('.bi-check-lg');
+            const saveStatus = document.getElementById('save-status');
+
+            // Get the next plant sequence number automatically
+            const existingObservations = document.querySelectorAll('#observation-list > li').length;
+            const nextSequenceNumber = existingObservations + 1;
+            
+            // Set the plant_sequence_number field
+            document.getElementById('id_plant_sequence_number').value = nextSequenceNumber;
+            console.log(`Setting plant sequence number to: ${nextSequenceNumber}`);
+
+            // Disable button and show spinner
+            saveButton.disabled = true;
+            if (spinner) spinner.style.display = 'inline-block';
+            if (buttonTextSpan) buttonTextSpan.textContent = 'Saving...';
+            if (buttonIcon) buttonIcon.style.display = 'none';
+            if (saveStatus) saveStatus.textContent = '';
+
+            try {
+                // Create form data from the form
+                const formData = new FormData(form);
+                
+                // Include draft ID if we have one
+                if (form.dataset.draftId) {
+                    formData.append('draft_id', form.dataset.draftId);
+                }
+                
+                // Ensure session ID is included
+                if (!formData.has('session_id')) {
+                    formData.append('session_id', JSON.parse(document.getElementById('session-id-data').textContent));
+                }
+
+                // Make the API call
+                const response = await fetch('{% url "core:api_create_observation" %}', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Observation saved successfully:', result);
+                    
+                    // Update UI with the new observation
+                    if (saveStatus) {
+                        saveStatus.textContent = 'Saved successfully!';
+                        saveStatus.className = 'ms-2 text-success';
+                    }
+                    
+                    // Check if we got a valid result with observation data
+                    if (result.status === 'success' && result.observation) {
+                        // Add to list and update counts
+                        addObservationToList(result.observation);
+                        if (result.counts) {
+                            updateUI(result.counts);
+                        }
+                        
+                        // Reset form
+                        form.reset();
+                        
+                        // Clear stored draft ID
+                        delete form.dataset.draftId;
+                        
+                        // Clear image displays
+                        if (document.getElementById('gallery')) {
+                            document.getElementById('gallery').innerHTML = '';
+                        }
+                        if (document.getElementById('fileList')) {
+                            document.getElementById('fileList').innerHTML = '<p>No files selected!</p>';
+                        }
+                        
+                        setTimeout(() => { 
+                            if (saveStatus) saveStatus.textContent = ''; 
+                        }, 3000);
+                    } else {
+                        console.error('Unexpected response format:', result);
+                        if (saveStatus) {
+                            saveStatus.textContent = result.message || 'Error: Unexpected response format';
+                            saveStatus.className = 'ms-2 text-danger';
+                        }
+                    }
+                } else {
+                    // Handle error response
+                    console.error('Error saving observation:', response.status);
+                    try {
+                        const errorData = await response.json();
+                        console.error('Error details:', errorData);
+                        if (errorData.errors) {
+                            if (saveStatus) {
+                                saveStatus.textContent = 'Form has errors. Please check and try again.';
+                                saveStatus.className = 'ms-2 text-danger';
+                            }
+                        } else {
+                            if (saveStatus) {
+                                saveStatus.textContent = errorData.message || 'Error saving observation';
+                                saveStatus.className = 'ms-2 text-danger';
+                            }
+                        }
+                    } catch (jsonError) {
+                        if (saveStatus) {
+                            saveStatus.textContent = 'Error saving observation';
+                            saveStatus.className = 'ms-2 text-danger';
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error saving observation:', error);
+                if (saveStatus) {
+                    saveStatus.textContent = `Error: ${error.message || 'Network error'}`;
+                    saveStatus.className = 'ms-2 text-danger';
+                }
+            } finally {
+                // Restore button state
+                saveButton.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+                if (buttonTextSpan) buttonTextSpan.textContent = 'Save Observation at Current Location';
+                if (buttonIcon) buttonIcon.style.display = 'inline-block';
+            }
+        });
+    } else {
+        console.error('Observation form not found');
+    }
+    
+    // Initialize UI components
+    updateUI();
+    highlightRecommendedItems();
 });
 </script>
-{% endblock extra_js %} 
+{% endblock extra_js %}
