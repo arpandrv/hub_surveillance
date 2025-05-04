@@ -956,7 +956,12 @@ def active_survey_session_view(request, session_id):
     # --- Restored Desktop User Redirection Block --- #
     user_agent = request.META.get('HTTP_USER_AGENT', '').lower()
     is_mobile = 'mobile' in user_agent or 'android' in user_agent or 'iphone' in user_agent
-    if not is_mobile:
+    # --- ADDED Check for force_desktop parameter --- #
+    force_desktop_param = request.GET.get('force_desktop', 'false').lower()
+    force_desktop = force_desktop_param == 'true'
+
+    # --- MODIFIED Condition to include force_desktop --- #
+    if not is_mobile and not force_desktop:
         # Generate QR code for the CURRENT active session URL
         session_url = request.build_absolute_uri(request.path) # Get current page URL
         qr_image_base64 = None
