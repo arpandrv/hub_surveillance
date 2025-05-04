@@ -24,6 +24,18 @@ CONFIDENCE_CHOICES = [
     (99, '99%'),
 ]
 
+SURVEY_STATUS_CHOICES = [
+    ('not_started', 'Not Started'),
+    ('in_progress', 'In Progress'),
+    ('completed', 'Completed'),
+    ('abandoned', 'Abandoned'),
+]
+
+OBSERVATION_STATUS_CHOICES = [
+    ('draft', 'Draft'),         # For auto-save
+    ('completed', 'Completed'),   # For final save
+]
+
 
 class Grower(models.Model):
     """
@@ -437,13 +449,6 @@ class BoundaryMappingToken(models.Model):
 
 # ---> NEW MODELS FOR PER-LOCATION SURVEILLANCE <---
 
-SURVEY_STATUS_CHOICES = [
-    ('not_started', 'Not Started'),
-    ('in_progress', 'In Progress'),
-    ('completed', 'Completed'),
-    ('abandoned', 'Abandoned'), # For surveys started but not finished
-]
-
 class SurveySession(models.Model):
     """
     Represents a single, distinct surveillance activity undertaken by a user for a specific farm.
@@ -507,8 +512,15 @@ class Observation(models.Model):
     pests_observed = models.ManyToManyField(Pest, related_name='observations', blank=True)
     diseases_observed = models.ManyToManyField(Disease, related_name='observations', blank=True)
     notes = models.TextField(blank=True, null=True)
-    # Add other fields if needed, e.g., plant_id if tracking specific plants
+    # Make plant_sequence_number nullable to allow saving drafts before it's entered
     plant_sequence_number = models.PositiveIntegerField(null=True, blank=True, help_text="Sequential number of the plant checked in this session (e.g., 1, 2, 3...)")
+    # Add status field for draft/completed state
+    status = models.CharField(
+        max_length=10,
+        choices=OBSERVATION_STATUS_CHOICES,
+        default='draft',
+        help_text="Status of the observation (Draft or Completed)"
+    )
 
     class Meta:
         ordering = ['observation_time']
@@ -517,7 +529,6 @@ class Observation(models.Model):
 
     def __str__(self):
         return f"Observation for Session {self.session.session_id} at {self.observation_time.strftime('%H:%M:%S')}"
-
 
 # Function to define upload path for observation images
 def observation_image_path(instance, filename):

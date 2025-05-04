@@ -219,8 +219,6 @@ class CalculatorForm(forms.Form):
 
 class ObservationForm(forms.ModelForm):
     """Form for recording a single observation point within a survey session."""
-    
-    # Use CheckboxSelectMultiple for better UI
     pests_observed = forms.ModelMultipleChoiceField(
         queryset=Pest.objects.all().order_by('name'),
         widget=forms.CheckboxSelectMultiple,
@@ -237,14 +235,12 @@ class ObservationForm(forms.ModelForm):
         widget=forms.Textarea(attrs={'rows': 3}),
         required=False
     )
-    # --- Reverted to Single Image Upload --- 
-    image = forms.ImageField( 
-        # Use default widget (ClearableFileInput)
+    images = forms.FileField(
+        widget=forms.FileInput(), 
         required=False,
-        label="Upload Image (Optional)"
+        label="Upload Images (Optional)",
+        help_text="Select one or more images related to this observation."
     )
-
-    # Field for the plant sequence number
     plant_sequence_number = forms.IntegerField(
         required=True, 
         min_value=1,
@@ -253,17 +249,9 @@ class ObservationForm(forms.ModelForm):
         widget=forms.NumberInput(attrs={'min': '1'})
     )
 
-    # Hidden fields for GPS - these will be populated by JavaScript
-    # We don't include them directly here as ModelForm fields, 
-    # as they aren't directly on the Observation model in this simple way.
-    # We will handle them in the API view when processing the AJAX request.
-    # latitude = forms.DecimalField(widget=forms.HiddenInput(), required=False)
-    # longitude = forms.DecimalField(widget=forms.HiddenInput(), required=False)
-    # gps_accuracy = forms.DecimalField(widget=forms.HiddenInput(), required=False)
-
     class Meta:
         model = Observation
-        # Fields included directly from the model that the user interacts with
-        # We exclude 'image' here because it's defined above and handled in the view
-        fields = ['plant_sequence_number', 'pests_observed', 'diseases_observed', 'notes'] 
-        # 'latitude', 'longitude', 'gps_accuracy' will be added manually in the view/JS.
+        fields = ['plant_sequence_number', 'pests_observed', 'diseases_observed', 'notes']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)

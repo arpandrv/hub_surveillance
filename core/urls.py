@@ -65,6 +65,7 @@ urlpatterns = [
 
     # ---> NEW API Endpoint for Observations <---
     path('api/survey/observation/create/', views.create_observation_api, name='api_create_observation'),
+    path('api/survey/observation/autosave/', views.auto_save_observation_api, name='api_auto_save_observation'),
     # ---> NEW API Endpoint for Finishing Session <---
     path('api/survey/<uuid:session_id>/finish/', views.finish_survey_session_api, name='api_finish_survey'),
 

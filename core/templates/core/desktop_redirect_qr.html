@@ -15,14 +15,16 @@
                     <p class="lead">This survey session is designed for mobile devices to use GPS features accurately.</p>
                     <p>Please scan the QR code below with your mobile device to continue the survey session:</p>
                     
-                    {% if qr_code_data_uri %}
-                        <img src="{{ qr_code_data_uri }}" alt="QR Code to continue survey" class="img-fluid my-3" style="max-width: 250px; border: 1px solid #ccc; padding: 5px;">
+                    {% if qr_image_base64 %}
+                        <img src="data:image/png;base64,{{ qr_image_base64 }}" alt="QR Code to continue survey" class="img-fluid my-3" style="max-width: 250px; border: 1px solid #ccc; padding: 5px;">
                     {% elif qr_generation_error %}
                         <div class="alert alert-danger mt-3">
                             <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Error:</strong> {{ qr_generation_error }}
                         </div>
                     {% else %}
-                        <p class="text-danger">Could not generate QR code. Please try accessing this page directly from your mobile device.</p>
+                        <div class="alert alert-danger mt-3">
+                            <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Error:</strong> Could not generate QR code. Please try accessing this page directly from your mobile device or check server logs.
+                        </div>
                     {% endif %}
 
                     <p class="text-muted small mt-3">

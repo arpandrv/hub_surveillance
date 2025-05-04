@@ -10,7 +10,7 @@ import json
 from django.conf import settings
 import requests
 from decimal import Decimal
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import pprint
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -19,9 +19,10 @@ from django.views.decorators.http import require_POST
 # from weasyprint import HTML, CSS
 # from weasyprint.fonts import FontConfiguration # If needing custom fonts later
 # --- End PDF imports ---
-import qrcode # For QR code generation
-import io     # For handling image data in memory
-import base64 # For embedding QR code in HTML
+import os
+import io
+import base64
+import qrcode
 
 from .forms import (
     SignUpForm, FarmForm, 
@@ -58,6 +59,9 @@ from .services.boundary_service import (
 from .season_utils import get_seasonal_stage_info
 # Import updated calculation function (assuming it's in calculations.py)
 from .calculations import calculate_surveillance_effort, get_surveillance_frequency, Z_SCORES, DEFAULT_CONFIDENCE
+
+# Import SeasonalStage for querying in active_survey_session_view
+from .models import SeasonalStage
 
 
 def signup_view(request):
@@ -196,11 +200,12 @@ def farm_detail_view(request, farm_id):
             # Handle case where prevalence couldn't be determined (no stage found)
             print(f"Farm {farm.id}: Cannot calculate fallback - prevalence_p is None (likely no stage found for month {month_used_for_stage})")
             calculation_results = {'error': f'Cannot calculate recommendations: No seasonal stage found for the current month ({month_used_for_stage}). Please define stages in admin.'}
-            
+
     except Exception as e:
         # Handle other potential errors during fetch/mapping
         print(f"Farm {farm.id}: Error fetching or mapping saved calculation: {e}") # MODIFIED
-        calculation_results = {'error': f'Error retrieving saved calculation: {e}'} 
+        calculation_results = {'error': f'Error retrieving saved calculation: {e}'}
+        print(f"Farm {farm.id}: Displaying error message: {calculation_results['error']}") # ADDED
 
     # Ensure calculation_results is not None if calculation failed
     if calculation_results is None:
@@ -942,277 +947,293 @@ def active_survey_session_view(request, session_id):
     Displays the main interface for an active survey session.
     Handles recording of individual observations (via AJAX/future enhancement).
     Redirects desktop users to a QR code page.
+    Loads draft observation data if available.
+    Passes recommended pests/diseases to template.
     """
-    # --- Desktop User Agent Detection --- 
-    # Simple check, might need refinement based on desired scope
+    session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
+    farm = session.farm
+
+    # --- Restored Desktop User Redirection Block --- #
     user_agent = request.META.get('HTTP_USER_AGENT', '').lower()
-    is_mobile = 'mobi' in user_agent
-
+    is_mobile = 'mobile' in user_agent or 'android' in user_agent or 'iphone' in user_agent
     if not is_mobile:
+        # Generate QR code for the CURRENT active session URL
+        session_url = request.build_absolute_uri(request.path) # Get current page URL
+        qr_image_base64 = None
         try:
-            # Get the current URL to encode in the QR code
-            current_url = request.build_absolute_uri()
-            
-            # Generate QR code image
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(current_url)
-            qr.make(fit=True)
-
-            img = qr.make_image(fill_color="black", back_color="white")
-            
-            # Save image to a buffer
+            qr_img = qrcode.make(session_url)
             buffer = io.BytesIO()
-            img.save(buffer, format="PNG")
-            buffer.seek(0)
-            
-            # Encode image for embedding in HTML
-            img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            qr_data_uri = f"data:image/png;base64,{img_str}"
-
-            # Render a specific template for desktop users
-            return render(request, 'core/desktop_redirect_qr.html', {
-                'qr_code_data_uri': qr_data_uri,
-                'session_id': session_id # Pass session ID for context if needed
-            })
+            qr_img.save(buffer, format='PNG')
+            qr_image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            print(f"Generated QR code for session URL: {session_url}") # Debug
         except Exception as e:
-            # Handle errors during QR code generation gracefully
-            error_message = f"Error generating QR code: {e}. Please try accessing this page from a mobile device."
-            print(error_message) # Log the specific error to console
-            # messages.error(request, "Could not generate QR code. Please try accessing this page from a mobile device.")
-            # Fallback: Render the QR page template with an error message instead of redirecting
-            return render(request, 'core/desktop_redirect_qr.html', {
-                'qr_generation_error': error_message,
-                'session_id': session_id # Pass session ID for context if needed
-            })
-    # --- End Desktop Detection ---
+            print(f"Error generating QR code for session {session_id}: {e}")
+            messages.error(request, "Could not generate QR code for mobile access.")
+            # Optionally handle error differently, maybe show link without QR?
 
-    # --- Original Mobile Logic Continues Below ---
-    try:
-        # Fetch the session, prefetching related farm and surveyor for efficiency
-        session = get_object_or_404(
-            SurveySession.objects.select_related('farm', 'surveyor'), 
-            session_id=session_id
-        )
-        print(f"ActiveSession: Fetched session {session.session_id} for farm '{session.farm.name}'")
-        
-        # --- Permission Check --- 
-        # Ensure the logged-in user is the one who started this survey
-        if session.surveyor != request.user:
-             messages.error(request, "You do not have permission to access this survey session.")
-             print(f"ActiveSession: Permission denied for user {request.user.username} on session {session.session_id} owned by {session.surveyor.username}")
-             # Redirect to dashboard or somewhere appropriate
-             return redirect('core:dashboard') 
-             
-        # Prevent access to already completed/abandoned sessions on this page
-        if session.status not in ['not_started', 'in_progress']:
-             messages.warning(request, f"This survey session ('{session.status}') is no longer active.")
-             print(f"ActiveSession: Session {session.session_id} has status '{session.status}', redirecting.")
-             # Redirect to a summary page or farm detail later?
-             return redirect('core:farm_detail', farm_id=session.farm.id) 
-             
-        # If session was 'not_started', mark it as 'in_progress' now that it's accessed
-        if session.status == 'not_started':
-            session.status = 'in_progress'
-            # Optionally update start_time if it should reflect access time, 
-            # but default=timezone.now on creation might be sufficient.
-            # session.start_time = timezone.now() 
-            session.save(update_fields=['status'])
-            print(f"ActiveSession: Marked session {session.session_id} as in_progress.")
+        # Render the desktop redirect template
+        return render(request, 'core/desktop_redirect_qr.html', {
+            'farm_name': farm.name,
+            'session_url': session_url, # Pass the session URL
+            'qr_image_base64': qr_image_base64, # Pass the generated QR code image data
+            'session_id': session_id, # ADDED: Pass session ID
+            'message': "This survey session requires GPS and should be run on a mobile device. Please scan the QR code or use the link on your mobile."
+        })
 
-    except Http404:
-        messages.error(request, "Survey session not found.")
-        print(f"ActiveSession: SurveySession with ID {session_id} not found (404).")
-        return redirect('core:dashboard') # Or farm list
-    except Exception as e:
-         messages.error(request, f"An error occurred accessing the survey session: {e}")
-         print(f"ActiveSession: Error fetching session {session_id}: {e}")
-         return redirect('core:dashboard')
-
-    # --- Prepare Context Data --- 
-    # Fetch existing observations for this session (to display later)
-    observations = Observation.objects.filter(session=session).order_by('-observation_time')
-    
-    # --- Calculate Unique Pest/Disease Counts for the Session --- #
-    unique_pests_count = Pest.objects.filter(observations__session=session).distinct().count()
-    unique_diseases_count = Disease.objects.filter(observations__session=session).distinct().count()
-    print(f"ActiveSession: Unique Pests={unique_pests_count}, Unique Diseases={unique_diseases_count}")
-    # --- End Calculation ---
-
-    # Get recommendations for the current stage
-    stage_info = get_seasonal_stage_info() # Assumes recommendations don't change mid-session
-    recommended_pests = Pest.objects.filter(name__in=stage_info.get('pest_names', []))
-    recommended_diseases = Disease.objects.filter(name__in=stage_info.get('disease_names', []))
-    # We don't need recommended_parts here anymore as the ObservationForm doesn't have a parts field
-    # recommended_parts = PlantPart.objects.filter(name__in=stage_info.get('part_names', []))
+    # --- Get Seasonal Info for Recommendations --- #
+    # Use the current month by default for recommendations within the active session
+    stage_info = get_seasonal_stage_info()
+    recommended_pests = stage_info.get('pests', []) # Get Pest objects
+    recommended_diseases = stage_info.get('diseases', []) # Get Disease objects
+    recommended_parts = stage_info.get('parts', []) # Get PlantPart objects
     current_stage_name = stage_info.get('stage_name', 'Unknown')
 
-    # ---> Instantiate the ObservationForm <--- #
-    observation_form = ObservationForm()
+    # --- Load Existing Observations --- #
+    observations = Observation.objects.filter(session=session, status='completed').order_by('-observation_time')
+    # --- Load Latest Draft Observation --- #
+    latest_draft = Observation.objects.filter(session=session, status='draft').order_by('-observation_time').first()
+    draft_data_json = '{}' # Default to empty JSON object
+    if latest_draft:
+        # Serialize draft data to pass to the template/JS
+        draft_data = {
+            'id': latest_draft.id,
+            'latitude': str(latest_draft.latitude) if latest_draft.latitude else None,
+            'longitude': str(latest_draft.longitude) if latest_draft.longitude else None,
+            'gps_accuracy': str(latest_draft.gps_accuracy) if latest_draft.gps_accuracy else None,
+            'pests_observed': list(latest_draft.pests_observed.values_list('id', flat=True)),
+            'diseases_observed': list(latest_draft.diseases_observed.values_list('id', flat=True)),
+            'notes': latest_draft.notes or '',
+            'plant_sequence_number': latest_draft.plant_sequence_number or '',
+            # Note: We don't load images for the draft in the form, only display previously saved ones.
+        }
+        draft_data_json = json.dumps(draft_data)
 
-    # Calculate completion percentage
-    completed_count = observations.count()
-    target_count = session.target_plants_surveyed or 0 # Ensure target is not None
-    completion_percentage = 0
-    if target_count > 0:
-        completion_percentage = min(100, int((completed_count / target_count) * 100))
+    observation_count = observations.count()
+    # Get target plants from the session itself
+    target_plants = session.target_plants_surveyed
+    progress_percent = int((observation_count / target_plants * 100)) if target_plants else 0
+
+    # Initialize the form
+    form = ObservationForm() # We don't use initial data here, JS will populate from draft_data_json
 
     context = {
         'session': session,
-        'farm': session.farm,
+        'farm': farm,
         'observations': observations,
-        'observation_form': observation_form, # Pass the form instance
-        'recommended_pests': recommended_pests,
-        'recommended_diseases': recommended_diseases,
-        # 'recommended_parts': recommended_parts, # Removed
+        'form': form,
+        'observation_count': observation_count,
+        'target_plants': target_plants,
+        'progress_percent': progress_percent,
+        'recommended_pests_ids': [p.id for p in recommended_pests],
+        'recommended_diseases_ids': [d.id for d in recommended_diseases],
+        'recommended_parts': recommended_parts, # Pass full objects if needed by template
         'current_stage_name': current_stage_name,
-        'target_plants': session.target_plants_surveyed,
-        'completed_plants': completed_count, # Use calculated count
-        'unique_pests_count': unique_pests_count,
-        'unique_diseases_count': unique_diseases_count,
-        'completion_percentage': completion_percentage # Add percentage to context
+        'latest_draft_json': draft_data_json, # Pass draft data as JSON
     }
-
-    # Render a new template for the active session
-    return render(request, 'core/active_survey_session.html', context) 
+    return render(request, 'core/active_survey_session.html', context)
 
 
-@csrf_exempt
+@csrf_exempt # Use proper auth later
+@require_POST
+@login_required
+def auto_save_observation_api(request):
+    """
+    API endpoint to handle AJAX submission for auto-saving draft observations.
+    Finds or creates a draft observation and updates its fields.
+    Does NOT finalize the observation (status remains 'draft').
+    """
+    try:
+        data = json.loads(request.body)
+        session_id = data.get('session_id')
+        draft_id = data.get('draft_id') # ID of existing draft, if known
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+        gps_accuracy = data.get('gps_accuracy')
+        pest_ids = data.get('pests_observed', [])
+        disease_ids = data.get('diseases_observed', [])
+        notes = data.get('notes', '')
+        plant_seq_str = data.get('plant_sequence_number', '')
+
+        session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
+
+        # Convert plant sequence number safely
+        plant_sequence_number = None
+        if plant_seq_str:
+            try:
+                plant_sequence_number = int(plant_seq_str)
+            except (ValueError, TypeError):
+                pass # Ignore invalid input for drafts
+
+        # Find existing draft or create a new one
+        observation = None
+        if draft_id:
+            try:
+                # Try to fetch the existing draft
+                observation = Observation.objects.get(id=draft_id, session=session, status='draft')
+                print(f"Finalizing draft observation ID: {draft_id}")
+                # Update fields from the form
+                observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
+                observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+                observation.notes = notes
+                observation.plant_sequence_number = plant_sequence_number # Can be None for drafts
+                observation.observation_time = timezone.now() # Update timestamp on each save
+
+                observation.save() # Save basic fields first to get an ID if new
+
+                # Update M2M fields
+                if pest_ids:
+                    observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
+                else:
+                    observation.pests_observed.clear()
+
+                if disease_ids:
+                    observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+                else:
+                    observation.diseases_observed.clear()
+
+                # Note: Images are NOT handled in auto-save to avoid partial uploads.
+                # They are only processed during the final save (create_observation_api).
+
+                return JsonResponse({'status': 'success', 'message': 'Draft saved.', 'draft_id': observation.id})
+
+            except Observation.DoesNotExist:
+                pass # If ID is invalid/mismatched, we'll create a new one
+
+        if not observation:
+            observation = Observation(session=session, status='draft')
+
+        # Update fields
+        observation.latitude = Decimal(latitude) if latitude else None
+        observation.longitude = Decimal(longitude) if longitude else None
+        observation.gps_accuracy = Decimal(gps_accuracy) if gps_accuracy else None
+        observation.notes = notes
+        observation.plant_sequence_number = plant_sequence_number # Can be None for drafts
+        observation.observation_time = timezone.now() # Update timestamp on each save
+
+        observation.save() # Save observation to get ID if new, or save updates
+
+        # Set M2M fields only after saving for new observations
+        if not draft_id:
+             observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
+             observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
+
+        # Note: Images are NOT handled in auto-save to avoid partial uploads.
+        # They are only processed during the final save (create_observation_api).
+
+        return JsonResponse({'status': 'success', 'message': 'Draft saved.', 'draft_id': observation.id})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'message': 'Invalid JSON data.'}, status=400)
+    except SurveySession.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Survey session not found.'}, status=404)
+    except Exception as e:
+        # Log the exception for debugging
+        print(f"Error in auto_save_observation_api: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': f'An unexpected error occurred: {e}'}, status=500)
+
+
+@csrf_exempt # TODO: Replace with proper token/session auth for AJAX
 @require_POST
 @login_required
 def create_observation_api(request):
     """
-    API endpoint to handle AJAX submission of a new observation.
-    Expects POST data including session_id, lat, lon, accuracy, pests, diseases, notes, image.
+    API endpoint to handle AJAX submission of a new observation OR finalize a draft.
+    Expects POST data including session_id, lat, lon, accuracy, pests, diseases, notes, images.
+    Also expects 'draft_id' if finalizing a draft.
+    Sets status to 'completed'.
+    Handles multiple image uploads.
     """
-    try:
-        # For simplicity, assume data comes as multipart/form-data (due to image)
-        # rather than pure JSON. Access via request.POST and request.FILES.
-        session_id = request.POST.get('session_id')
-        latitude = request.POST.get('latitude')
-        longitude = request.POST.get('longitude')
-        accuracy = request.POST.get('gps_accuracy')
-        notes = request.POST.get('notes', '')
-        pest_ids = request.POST.getlist('pests_observed') # Checkbox values
-        disease_ids = request.POST.getlist('diseases_observed') # Checkbox values
-        # Get single image file
-        image_file = request.FILES.get('image') 
-        # ---> Get Plant Sequence Number <---
-        plant_sequence_str = request.POST.get('plant_sequence_number')
-        
-        print(f"API Create Obs: Received data for session: {session_id}")
-        print(f"  Lat: {latitude}, Lon: {longitude}, Acc: {accuracy}")
-        print(f"  Pest IDs: {pest_ids}, Disease IDs: {disease_ids}")
-        print(f"  Notes: '{notes[:50]}...'")
-        # Log single image file
-        print(f"  Image file: {image_file}")
-        print(f"  Plant Sequence: {plant_sequence_str}") # Debug plant number
+    session_id = request.POST.get('session_id')
+    draft_id = request.POST.get('draft_id') # Get draft ID if finalizing
+    session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
 
-        if not session_id:
-            return JsonResponse({'status': 'error', 'message': 'Missing session_id.'}, status=400)
+    # Use ObservationForm for validation, but handle GPS/images separately
+    form = ObservationForm(request.POST) # Pass POST data directly
 
-        # --- Validation & Processing --- 
+    if form.is_valid():
         try:
-            session = SurveySession.objects.get(session_id=session_id, surveyor=request.user)
-            if session.status not in ['in_progress', 'not_started']: # Allow adding if just started
-                 return JsonResponse({'status': 'error', 'message': 'Survey session is not active.'}, status=400)
-        except SurveySession.DoesNotExist:
-             return JsonResponse({'status': 'error', 'message': 'Invalid or unauthorized session_id.'}, status=404)
-             
-        # Convert GPS data (handle potential errors/empty strings)
-        try:
-            lat_decimal = Decimal(latitude) if latitude else None
-            lon_decimal = Decimal(longitude) if longitude else None
-            acc_decimal = Decimal(accuracy) if accuracy else None
-        except (TypeError, ValueError, Decimal.InvalidOperation):
-             return JsonResponse({'status': 'error', 'message': 'Invalid GPS coordinate format.'}, status=400)
-             
-        # ---> Validate Plant Sequence Number <---
-        plant_sequence_num = None
-        if plant_sequence_str:
-            try:
-                plant_sequence_num = int(plant_sequence_str)
-                if plant_sequence_num <= 0:
-                     return JsonResponse({'status': 'error', 'message': 'Plant sequence number must be positive.'}, status=400)
-            except (ValueError, TypeError):
-                 return JsonResponse({'status': 'error', 'message': 'Invalid Plant Sequence Number.'}, status=400)
-        else:
-            # Make it required
-            return JsonResponse({'status': 'error', 'message': 'Plant Sequence Number is required.'}, status=400)
+            observation = None
+            if draft_id:
+                try:
+                    # Try to fetch the existing draft
+                    observation = Observation.objects.get(id=draft_id, session=session, status='draft')
+                    print(f"Finalizing draft observation ID: {draft_id}")
+                    # Update fields from the form
+                    observation.pests_observed.set(form.cleaned_data['pests_observed'])
+                    observation.diseases_observed.set(form.cleaned_data['diseases_observed'])
+                    observation.notes = form.cleaned_data['notes']
+                    observation.plant_sequence_number = form.cleaned_data['plant_sequence_number'] # Required now
+                except Observation.DoesNotExist:
+                    print(f"Draft ID {draft_id} not found or not a draft, creating new observation.")
+                    # Fall through to create a new one if draft not found
 
-        # Create the Observation object
-        observation = Observation.objects.create(
-            session=session,
-            latitude=lat_decimal,
-            longitude=lon_decimal,
-            gps_accuracy=acc_decimal,
-            notes=notes,
-            plant_sequence_number=plant_sequence_num, # Save the number
-            # observation_time is set by default=timezone.now
-        )
-        
-        # Add M2M relationships
-        if pest_ids:
-            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
-        if disease_ids:
-            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
-            
-        # --- Handle single image upload --- 
-        image_url = None # Initialize as None
-        if image_file:
-            try:
-                obs_image = ObservationImage.objects.create(
-                    observation=observation,
-                    image=image_file
+            if not observation:
+                print("Creating new observation.")
+                # Create a new observation instance if not updating a draft
+                observation = Observation(
+                    session=session,
+                    plant_sequence_number=form.cleaned_data['plant_sequence_number'],
+                    notes=form.cleaned_data['notes'],
                 )
-                image_url = request.build_absolute_uri(obs_image.image.url)
-                print(f"API Create Obs: Saved image {obs_image.image.name} for observation {observation.id}")
-            except Exception as e:
-                print(f"Error saving image for observation {observation.id}: {e}")
+                # M2M fields will be set after initial save
 
-        # --- Calculate updated session counts ---
-        completed_count = session.observations.count()
-        session_pests_count = Pest.objects.filter(observations__session=session).distinct().count()
-        session_diseases_count = Disease.objects.filter(observations__session=session).distinct().count()
-        # Remove None if no pests/diseases are linked
-        unique_pest_ids = set(observation.pests_observed.values_list('id', flat=True))
-        unique_disease_ids = set(observation.diseases_observed.values_list('id', flat=True))
+            # Common fields (GPS, status, time) for both new and draft updates
+            observation.latitude = Decimal(request.POST.get('latitude')) if request.POST.get('latitude') else None
+            observation.longitude = Decimal(request.POST.get('longitude')) if request.POST.get('longitude') else None
+            observation.gps_accuracy = Decimal(request.POST.get('gps_accuracy')) if request.POST.get('gps_accuracy') else None
+            observation.observation_time = timezone.now() # Set time on final save
+            observation.status = 'completed' # Mark as completed
 
-        # --- Prepare response data ---
-        response_data = {
-            'status': 'success',
-            'observation': {
-                'id': observation.id,
-                'time_formatted': observation.observation_time.strftime('%I:%M %p'), # Format time
-                'latitude': f'{observation.latitude:.5f}' if observation.latitude else '-',
-                'longitude': f'{observation.longitude:.5f}' if observation.longitude else '-',
-                'pests': [p.name for p in observation.pests_observed.all()],
-                'diseases': [d.name for d in observation.diseases_observed.all()],
-                'notes_truncated': truncatechars(observation.notes, 50),
-                'image_url': image_url,
-                'plant_sequence_number': observation.plant_sequence_number # Include in response
-            },
-            'session_counts': {
-                'completed': completed_count,
-                'unique_pests': session_pests_count,
-                'unique_diseases': session_diseases_count
+            observation.save() # Save observation to get ID if new, or save updates
+
+            # Set M2M fields only after saving for new observations
+            if not draft_id:
+                 observation.pests_observed.set(form.cleaned_data['pests_observed'])
+                 observation.diseases_observed.set(form.cleaned_data['diseases_observed'])
+
+            # Handle Multiple Image Uploads
+            images = request.FILES.getlist('images') # Use the name from ObservationForm
+            print(f"Received {len(images)} files for observation {observation.id}.") # Debug
+            for img_file in images:
+                ObservationImage.objects.create(observation=observation, image=img_file)
+                print(f"Saved image {img_file.name} for observation {observation.id}") # Debug
+
+            # Prepare data for the success response (e.g., for updating the UI)
+            # Convert Decimal fields to string for JSON serialization
+            response_data = {
+                'status': 'success',
+                'observation': {
+                    'id': observation.id,
+                    'time': observation.observation_time.strftime('%H:%M:%S'),
+                    'latitude': str(observation.latitude) if observation.latitude else None,
+                    'longitude': str(observation.longitude) if observation.longitude else None,
+                    'pests': list(observation.pests_observed.values_list('name', flat=True)),
+                    'diseases': list(observation.diseases_observed.values_list('name', flat=True)),
+                    'notes': observation.notes,
+                    'plant_sequence_number': observation.plant_sequence_number,
+                    # Include image URLs if needed by the template
+                    'image_urls': [img.image.url for img in observation.images.all()]
+                },
+                 # Send back counts for progress update
+                'observation_count': Observation.objects.filter(session=session, status='completed').count()
             }
-        }
-        # ---> END Prepare response data --- #
-        
-        # Return success response
-        return JsonResponse(response_data)
+            return JsonResponse(response_data)
 
-    except Exception as e:
-        print(f"API Create Obs: Error processing request - {e}")
-        return JsonResponse({'status': 'error', 'message': f'An internal error occurred: {e}'}, status=500) 
+        except Exception as e:
+            # Log the error
+            print(f"Error saving observation: {e}")
+            import traceback
+            traceback.print_exc()
+            return JsonResponse({'status': 'error', 'message': f'Error saving observation: {e}'}, status=500)
+    else:
+        # Form validation failed
+        print(f"Observation form errors: {form.errors.as_json()}")
+        return JsonResponse({'status': 'error', 'message': 'Invalid data submitted.', 'errors': form.errors.as_json()}, status=400)
 
 
-@csrf_exempt
+@csrf_exempt # TODO: Replace with proper auth
 @require_POST
 @login_required
 def finish_survey_session_api(request, session_id):

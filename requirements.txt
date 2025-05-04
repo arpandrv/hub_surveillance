@@ -1,0 +1,11 @@
+Django>=4.2,<5.0
+python-dotenv>=1.0
+Pillow>=9.0 # Added for image handling
+requests>=2.20
+qrcode[pil]>=7.0 # ADDED: For QR code generation with image support
+django-bootstrap5>=23.0
+# Add other dependencies as needed, e.g.:
+# celery
+# redis
+# psycopg2-binary (for PostgreSQL)
+# weasyprint (requires system dependencies)
