@@ -90,11 +90,19 @@
     {# Observation Recording Form Area #}
     <div class="observation-form-area">
         <h4><i class="bi bi-geo-alt-fill me-1"></i> Record New Observation</h4>
+        <p class="text-muted small">Ensure GPS is enabled and stable before saving each observation.</p>
         <hr>
         
-        <div id="gps-status" class="alert alert-secondary small"> 
-            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> 
-            Acquiring GPS coordinates...
+        {# GPS Status Area #}
+        <div id="gps-status" class="alert alert-secondary small mb-3"> 
+            {# Content updated by JS #}
+        </div>
+        <div id="gps-error-message" class="alert alert-danger small mb-3" style="display: none;"></div>
+
+        {# Tutorial/Help Placeholder #}
+        <div class="alert alert-info alert-dismissible fade show small mb-3" role="alert">
+            <i class="bi bi-lightbulb me-1"></i> <strong>Tip:</strong> Select observed pests/diseases, add notes or photos, and save before moving to the next plant.
+            <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
         
         {# Render the Observation Form #}
@@ -107,8 +115,51 @@
                 <input type="hidden" name="longitude" id="id_longitude">
                 <input type="hidden" name="gps_accuracy" id="id_gps_accuracy">
                 
-                {# --- Revert to using as_p for simplicity --- #}
-                {{ observation_form.as_p }}
+                {# Render fields manually for better control #}
+                <div class="mb-3">
+                    {{ observation_form.plant_sequence_number.label_tag }} 
+                    {{ observation_form.plant_sequence_number }}
+                    {% if observation_form.plant_sequence_number.help_text %}
+                    <div class="form-text">{{ observation_form.plant_sequence_number.help_text }}</div>
+                    {% endif %}
+                    {% for error in observation_form.plant_sequence_number.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">{{ observation_form.pests_observed.label }}</label>
+                    <div class="form-check-scrollable border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                        {{ observation_form.pests_observed }}
+                    </div>
+                    {% for error in observation_form.pests_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">{{ observation_form.diseases_observed.label }}</label>
+                    <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                        {{ observation_form.diseases_observed }}
+                    </div>
+                    {% for error in observation_form.diseases_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+
+                {# Collapsible Notes #}
+                <div class="mb-3">
+                    <a class="btn btn-outline-secondary btn-sm mb-1" data-bs-toggle="collapse" href="#collapseNotes" role="button" aria-expanded="false" aria-controls="collapseNotes">
+                        <i class="bi bi-pencil-square me-1"></i> Add/View Notes (Optional)
+                    </a>
+                    <div class="collapse" id="collapseNotes">
+                      <div class="card card-body p-2">
+                         {{ observation_form.notes.label_tag }}
+                         {{ observation_form.notes }}
+                         {% for error in observation_form.notes.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                      </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    {{ observation_form.image.label_tag }}
+                    {{ observation_form.image }}
+                    {% for error in observation_form.image.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
 
                 <button type="submit" id="save-observation-btn" class="btn btn-success" disabled>
                      <i class="bi bi-check-lg me-1"></i> Save Observation at Current Location
@@ -119,7 +170,10 @@
             <p class="text-danger">Observation form is not configured yet.</p>
         {% endif %}
         
-        <p class="text-danger small mt-2"><i class="bi bi-exclamation-triangle"></i> Save before moving for GPS accuracy!</p>
+        {# Explicit Warning #}
+        <div class="alert alert-warning small mt-3 p-2" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>Important:</strong> Press 'Save Observation' *before* moving to the next plant to ensure accurate GPS logging for each observation.
+        </div>
     </div>
 
     {# Finish Session Button #}
@@ -196,6 +250,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const lonInput = document.getElementById('id_longitude');
     const accInput = document.getElementById('id_gps_accuracy');
     const form = document.getElementById('observation-form');
+    const formFieldsContainer = document.getElementById('observation-form-fields'); // Assuming a container for fields
+    const gpsErrorMessage = document.getElementById('gps-error-message');
     const saveStatusSpan = document.getElementById('save-status'); // Get status span
     // Read data passed via json_script
     const targetPlants = JSON.parse(document.getElementById('target-plants-data').textContent);
@@ -299,18 +355,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // 1. Get GPS Location
-    function getGPSLocation() {
+    // 1. Get GPS Location (Initial check and subsequent checks)
+    function getGPSLocation(isInitialCheck = false) {
         if (!navigator.geolocation) {
             gpsStatus.className = 'alert alert-danger small';
             gpsStatus.innerHTML = '<i class="bi bi-x-octagon-fill me-1"></i> Geolocation is not supported by your browser.';
-            if(saveBtn) saveBtn.disabled = true;
+            disableForm("Geolocation not supported.");
             return;
         }
 
         gpsStatus.className = 'alert alert-warning small';
         gpsStatus.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring high accuracy GPS... Please wait.';
-        if(saveBtn) saveBtn.disabled = true;
+        disableForm("Acquiring GPS...");
         
         navigator.geolocation.getCurrentPosition(
             (position) => {
@@ -325,7 +381,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if(latInput) latInput.value = latitude.toFixed(9);
                 if(lonInput) lonInput.value = longitude.toFixed(9);
                 if(accInput) accInput.value = accuracy.toFixed(2);
-                if(saveBtn) saveBtn.disabled = false; // Enable save button
+                enableForm(); // Enable form fields and save button
             },
             (error) => {
                 gpsStatus.className = 'alert alert-danger small';
@@ -337,12 +393,54 @@ document.addEventListener('DOMContentLoaded', function() {
                     default: errorMsg += "An unknown error occurred."; break;
                 }
                 gpsStatus.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-1"></i> ${errorMsg}`;
+                showGpsError(errorMsg); // Show persistent error
                 console.error(errorMsg);
-                if(saveBtn) saveBtn.disabled = true;
+                disableForm(errorMsg); // Keep form disabled
             },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            {
+                enableHighAccuracy: true, // Request high accuracy
+                timeout: 15000, // Increased timeout
+                maximumAge: 0 // Force fresh reading
+            }
         );
     }
+
+    // --- Helper functions to enable/disable form ---
+    function disableForm(reason) {
+        if (saveBtn) saveBtn.disabled = true;
+        // Optionally disable other form inputs
+        form.querySelectorAll('input, textarea, select').forEach(el => {
+           if(el.type !== 'hidden') el.disabled = true;
+        });
+        showGpsError(reason);
+        gpsStatus.style.display = 'none'; // Hide the status spinner area
+        console.warn("Form disabled: " + reason);
+    }
+
+    function enableForm() {
+        if (saveBtn) saveBtn.disabled = false;
+        form.querySelectorAll('input, textarea, select').forEach(el => {
+             if(el.type !== 'hidden') el.disabled = false;
+        });
+        hideGpsError();
+        gpsStatus.style.display = 'block'; // Show status area again
+        console.log("Form enabled.");
+    }
+
+    function showGpsError(message) {
+        if(gpsErrorMessage) {
+            gpsErrorMessage.textContent = message;
+            gpsErrorMessage.style.display = 'block';
+        }
+    }
+
+    function hideGpsError() {
+        if(gpsErrorMessage) {
+            gpsErrorMessage.style.display = 'none';
+        }
+    }
+
+    // --- End Helper Functions ---
 
     // 2. Handle Form Submission (AJAX)
     if (form) {
@@ -386,6 +484,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Clear the file input specifically if it exists
                     const fileInput = form.querySelector('#id_image'); // Use the default ID for the single image field
                     if(fileInput) fileInput.value = ''; // Reset file input
+                    // Collapse notes if open
+                    const notesCollapse = document.getElementById('collapseNotes');
+                    if (notesCollapse && notesCollapse.classList.contains('show')) {
+                        new bootstrap.Collapse(notesCollapse).hide();
+                    }
                     // Update global count *before* adding to list, so list header count is correct
                     completedPlants = data.session_counts.completed; 
                     addObservationToList(data.observation); // Pass the observation object
@@ -404,7 +507,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .finally(() => {
                 // Re-enable save button? Or wait for new GPS lock?
                 // saveBtn.disabled = false; 
-                getGPSLocation(); // Get new location for next potential observation
+                getGPSLocation(false); // Get new location, not initial check
                  // Clear status message after a delay
                 setTimeout(() => { saveStatusSpan.textContent = ''; }, 3000);
             });
@@ -461,7 +564,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Initial GPS fetch and UI update
-    getGPSLocation();
+    getGPSLocation(true); // Pass true for initial check
     updateUI(); // Initial UI state
 
 });

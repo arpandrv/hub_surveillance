@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Survey Report: {{ farm.name }} - {{ session.start_time|date:"M j, Y" }}</title>
+    <style>
+        /* Basic Print Styling */
+        @page {
+            size: A4;
+            margin: 1.5cm; /* Generous margins */
+            @bottom-center {
+                content: "Page " counter(page) " of " counter(pages);
+                font-size: 10pt;
+                color: #666;
+            }
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.4;
+            color: #333;
+        }
+
+        h1, h2, h3, h4 {
+            font-weight: bold;
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            color: #1a237e; /* Dark blue heading */
+        }
+        
+        h1 { font-size: 20pt; border-bottom: 2px solid #1a237e; padding-bottom: 5px; margin-top: 0; }
+        h2 { font-size: 16pt; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
+        h3 { font-size: 13pt; }
+        h4 { font-size: 11pt; color: #555; margin-bottom: 0.3em;}
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5em;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background-color: #e8eaf6; /* Light blue header */
+            font-weight: bold;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9; /* Subtle row striping */
+        }
+
+        .summary-table td {
+            border: none; /* Cleaner look for summary */
+            padding: 4px 0;
+        }
+        .summary-table strong {
+            display: inline-block;
+            min-width: 150px; /* Align labels */
+        }
+
+        .observation-list {
+            margin-top: 2em;
+        }
+
+        .observation-item {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 1em;
+            page-break-inside: avoid; /* Try to keep observations together */
+            background-color: #fff;
+            border-radius: 4px;
+        }
+        
+        .observation-item img {
+            max-width: 150px; /* Larger images for PDF */
+            max-height: 150px;
+            height: auto;
+            border: 1px solid #eee;
+            margin-top: 5px;
+            display: block; /* Avoid inline spacing issues */
+        }
+
+        .label {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .text-muted {
+            color: #777;
+            font-style: italic;
+        }
+
+        .badge { 
+            display: inline-block;
+            padding: .25em .6em;
+            font-size: 75%;
+            font-weight: 700;
+            line-height: 1;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: baseline;
+            border-radius: .25rem;
+            margin-right: 0.3em;
+            margin-bottom: 0.3em;
+        }
+        .bg-danger { background-color: #dc3545; color: white; }
+        .bg-warning { background-color: #ffc107; color: black; }
+        .bg-success { background-color: #198754; color: white; }
+        .bg-info { background-color: #0dcaf0; color: black; }
+        .bg-secondary { background-color: #6c757d; color: white; }
+
+        hr {
+          border: 0;
+          border-top: 1px solid #eee;
+          margin: 1em 0;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Farm Surveillance Report</h1>
+
+    <h2>Session Summary</h2>
+    <table class="summary-table">
+        <tr>
+            <td><strong>Farm:</strong></td>
+            <td>{{ farm.name }}</td>
+        </tr>
+        <tr>
+            <td><strong>Surveyor:</strong></td>
+            <td>{{ session.surveyor.username }}</td>
+        </tr>
+        <tr>
+            <td><strong>Status:</strong></td>
+            <td><span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span></td>
+        </tr>
+        <tr>
+            <td><strong>Started:</strong></td>
+            <td>{{ session.start_time|date:"M j, Y, P" }}</td>
+        </tr>
+        <tr>
+            <td><strong>Ended:</strong></td>
+            <td>{{ session.end_time|date:"P"|default:"-" }}</td>
+        </tr>
+         <tr>
+            <td><strong>Duration:</strong></td>
+            <td>{{ session.duration|default:"-" }}</td>
+        </tr>
+         <tr>
+            <td><strong>Target Observations:</strong></td>
+            <td>{{ session.target_plants_surveyed|default:"Not Set" }}</td>
+        </tr>
+        <tr>
+            <td><strong>Observations Recorded:</strong></td>
+            <td>{{ completed_count }}</td>
+        </tr>
+         <tr>
+            <td><strong>Unique Pests Found:</strong></td>
+            <td>
+                 {% for p in unique_pests %}<span class="badge bg-danger">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                 ({{ unique_pests_count }})
+             </td>
+        </tr>
+        <tr>
+            <td><strong>Unique Diseases Found:</strong></td>
+            <td>
+                {% for d in unique_diseases %}<span class="badge bg-warning">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                ({{ unique_diseases_count }})
+            </td>
+        </tr>
+    </table>
+
+
+    <h2>Observations Recorded ({{ completed_count }})</h2>
+    
+    <div class="observation-list">
+        {% if observations %}
+            {% for obs in observations %}
+                <div class="observation-item">
+                    <h4>Observation at {{ obs.observation_time|date:"P" }}</h4>
+                     <p>
+                        <span class="label">GPS:</span> 
+                        {% if obs.latitude and obs.longitude %}
+                            {{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }}
+                            (Accuracy: {{ obs.gps_accuracy|floatformat:1|default:"?" }}m)
+                        {% else %}
+                            <span class="text-muted">Not recorded</span>
+                        {% endif %}
+                    </p>
+                    <p>
+                        <span class="label">Pests Observed:</span> 
+                        {% for p in obs.pests_observed.all %}<span class="badge bg-danger">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                    </p>
+                    <p>
+                        <span class="label">Diseases Observed:</span> 
+                        {% for d in obs.diseases_observed.all %}<span class="badge bg-warning">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                    </p>
+                    {% if obs.notes %}
+                    <p><span class="label">Notes:</span><br>{{ obs.notes|linebreaksbr }}</p>
+                    {% endif %}
+
+                    {% with obs.first_image_absolute_url as image_url %}
+                        {% if image_url %}
+                            <p><span class="label">Image:</span></p>
+                            {# Use the absolute URL passed from the view #}
+                            <img src="{{ image_url }}" alt="Observation image">
+                        {% endif %}
+                    {% endwith %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted">No observations were recorded in this session.</p>
+        {% endif %}
+    </div>
+
+</body>
+</html> 

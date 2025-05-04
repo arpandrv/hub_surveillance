@@ -75,4 +75,6 @@ urlpatterns = [
     path('farms/<int:farm_id>/sessions/', views.survey_session_list_view, name='survey_session_list'),
     # Add the missing detail view URL
     path('sessions/<uuid:session_id>/detail/', views.survey_session_detail_view, name='survey_session_detail'), 
+    # ---> NEW URL for PDF Generation <---
+    # path('sessions/<uuid:session_id>/pdf/', views.generate_survey_pdf_view, name='survey_session_pdf'),
 ]

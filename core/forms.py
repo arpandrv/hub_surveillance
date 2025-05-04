@@ -244,6 +244,15 @@ class ObservationForm(forms.ModelForm):
         label="Upload Image (Optional)"
     )
 
+    # Field for the plant sequence number
+    plant_sequence_number = forms.IntegerField(
+        required=True, 
+        min_value=1,
+        label="Plant Sequence Number",
+        help_text="Enter the number of the plant you just checked (e.g., 1, 5, 10...).",
+        widget=forms.NumberInput(attrs={'min': '1'})
+    )
+
     # Hidden fields for GPS - these will be populated by JavaScript
     # We don't include them directly here as ModelForm fields, 
     # as they aren't directly on the Observation model in this simple way.
@@ -256,5 +265,5 @@ class ObservationForm(forms.ModelForm):
         model = Observation
         # Fields included directly from the model that the user interacts with
         # We exclude 'image' here because it's defined above and handled in the view
-        fields = ['pests_observed', 'diseases_observed', 'notes'] 
+        fields = ['plant_sequence_number', 'pests_observed', 'diseases_observed', 'notes'] 
         # 'latitude', 'longitude', 'gps_accuracy' will be added manually in the view/JS.

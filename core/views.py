@@ -14,7 +14,14 @@ from datetime import datetime
 import pprint
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from django.template.defaultfilters import date as format_date, truncatechars # For formatting dates
+# --- Add imports for PDF generation ---
+# from django.template.loader import render_to_string
+# from weasyprint import HTML, CSS
+# from weasyprint.fonts import FontConfiguration # If needing custom fonts later
+# --- End PDF imports ---
+import qrcode # For QR code generation
+import io     # For handling image data in memory
+import base64 # For embedding QR code in HTML
 
 from .forms import (
     SignUpForm, FarmForm, 
@@ -934,7 +941,57 @@ def active_survey_session_view(request, session_id):
     """
     Displays the main interface for an active survey session.
     Handles recording of individual observations (via AJAX/future enhancement).
+    Redirects desktop users to a QR code page.
     """
+    # --- Desktop User Agent Detection --- 
+    # Simple check, might need refinement based on desired scope
+    user_agent = request.META.get('HTTP_USER_AGENT', '').lower()
+    is_mobile = 'mobi' in user_agent
+
+    if not is_mobile:
+        try:
+            # Get the current URL to encode in the QR code
+            current_url = request.build_absolute_uri()
+            
+            # Generate QR code image
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(current_url)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            # Save image to a buffer
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            buffer.seek(0)
+            
+            # Encode image for embedding in HTML
+            img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            qr_data_uri = f"data:image/png;base64,{img_str}"
+
+            # Render a specific template for desktop users
+            return render(request, 'core/desktop_redirect_qr.html', {
+                'qr_code_data_uri': qr_data_uri,
+                'session_id': session_id # Pass session ID for context if needed
+            })
+        except Exception as e:
+            # Handle errors during QR code generation gracefully
+            error_message = f"Error generating QR code: {e}. Please try accessing this page from a mobile device."
+            print(error_message) # Log the specific error to console
+            # messages.error(request, "Could not generate QR code. Please try accessing this page from a mobile device.")
+            # Fallback: Render the QR page template with an error message instead of redirecting
+            return render(request, 'core/desktop_redirect_qr.html', {
+                'qr_generation_error': error_message,
+                'session_id': session_id # Pass session ID for context if needed
+            })
+    # --- End Desktop Detection ---
+
+    # --- Original Mobile Logic Continues Below ---
     try:
         # Fetch the session, prefetching related farm and surveyor for efficiency
         session = get_object_or_404(
@@ -1044,6 +1101,8 @@ def create_observation_api(request):
         disease_ids = request.POST.getlist('diseases_observed') # Checkbox values
         # Get single image file
         image_file = request.FILES.get('image') 
+        # ---> Get Plant Sequence Number <---
+        plant_sequence_str = request.POST.get('plant_sequence_number')
         
         print(f"API Create Obs: Received data for session: {session_id}")
         print(f"  Lat: {latitude}, Lon: {longitude}, Acc: {accuracy}")
@@ -1051,6 +1110,7 @@ def create_observation_api(request):
         print(f"  Notes: '{notes[:50]}...'")
         # Log single image file
         print(f"  Image file: {image_file}")
+        print(f"  Plant Sequence: {plant_sequence_str}") # Debug plant number
 
         if not session_id:
             return JsonResponse({'status': 'error', 'message': 'Missing session_id.'}, status=400)
@@ -1071,6 +1131,19 @@ def create_observation_api(request):
         except (TypeError, ValueError, Decimal.InvalidOperation):
              return JsonResponse({'status': 'error', 'message': 'Invalid GPS coordinate format.'}, status=400)
              
+        # ---> Validate Plant Sequence Number <---
+        plant_sequence_num = None
+        if plant_sequence_str:
+            try:
+                plant_sequence_num = int(plant_sequence_str)
+                if plant_sequence_num <= 0:
+                     return JsonResponse({'status': 'error', 'message': 'Plant sequence number must be positive.'}, status=400)
+            except (ValueError, TypeError):
+                 return JsonResponse({'status': 'error', 'message': 'Invalid Plant Sequence Number.'}, status=400)
+        else:
+            # Make it required
+            return JsonResponse({'status': 'error', 'message': 'Plant Sequence Number is required.'}, status=400)
+
         # Create the Observation object
         observation = Observation.objects.create(
             session=session,
@@ -1078,6 +1151,7 @@ def create_observation_api(request):
             longitude=lon_decimal,
             gps_accuracy=acc_decimal,
             notes=notes,
+            plant_sequence_number=plant_sequence_num, # Save the number
             # observation_time is set by default=timezone.now
         )
         
@@ -1119,7 +1193,8 @@ def create_observation_api(request):
                 'pests': [p.name for p in observation.pests_observed.all()],
                 'diseases': [d.name for d in observation.diseases_observed.all()],
                 'notes_truncated': truncatechars(observation.notes, 50),
-                'image_url': image_url 
+                'image_url': image_url,
+                'plant_sequence_number': observation.plant_sequence_number # Include in response
             },
             'session_counts': {
                 'completed': completed_count,
@@ -1291,3 +1366,115 @@ def survey_session_detail_view(request, session_id):
     print("--------------------------------------------\\n")
 
     return render(request, 'core/survey_session_detail.html', context) 
+
+
+# --- PDF Generation View ---
+# @login_required
+# def generate_survey_pdf_view(request, session_id):
+#     """
+#     Generates a PDF report for a specific survey session.
+#     """
+#     session = get_object_or_404(SurveySession.objects.select_related('farm', 'surveyor'), id=session_id)
+#
+#     # Basic authorization check
+#     if session.farm.owner != request.user.grower_profile:
+#         raise Http404("Session not found or you do not have permission.")
+#
+#     farm = session.farm
+#     # Prefetch related data for efficiency
+#     observations = session.observations.prefetch_related('pests_observed', 'diseases_observed', 'images').order_by('observation_time')
+#     completed_count = observations.count()
+#     
+#     # Get unique pests/diseases
+#     unique_pests = Pest.objects.filter(observation__session=session).distinct()
+#     unique_diseases = Disease.objects.filter(observation__session=session).distinct()
+#     unique_pests_count = unique_pests.count()
+#     unique_diseases_count = unique_diseases.count()
+#
+#     # --- Helper function to build absolute URIs for images ---
+#     # WeasyPrint needs absolute paths for local files/media
+#     def build_absolute_uri(path):
+#         return request.build_absolute_uri(path)
+#
+#     # Process observations to include absolute image URLs if needed
+#     observations_for_pdf = []
+#     for obs in observations:
+#         first_image_url = None
+#         first_image = obs.images.first()
+#         if first_image and hasattr(first_image.image, 'url'):
+#             # Construct absolute URL for the image
+#             try:
+#                 # Ensure media URL is handled correctly
+#                  # Check if MEDIA_URL is already absolute
+#                 if first_image.image.url.startswith(('http://', 'https://')):
+#                     first_image_url = first_image.image.url
+#                 else:
+#                     # Build absolute URI based on request
+#                     first_image_url = build_absolute_uri(first_image.image.url)
+#                 print(f"PDF Gen: Image URL for obs {obs.id}: {first_image_url}") # Debug
+#             except Exception as e:
+#                  print(f"PDF Gen: Error building image URL for obs {obs.id}: {e}") # Debug
+#         
+#         observations_for_pdf.append({
+#             'id': obs.id,
+#             'observation_time': obs.observation_time,
+#             'latitude': obs.latitude,
+#             'longitude': obs.longitude,
+#             'gps_accuracy': obs.gps_accuracy,
+#             'pests_observed': list(obs.pests_observed.all()), # Pass full objects if needed in template
+#             'diseases_observed': list(obs.diseases_observed.all()),
+#             'notes': obs.notes,
+#             'first_image_absolute_url': first_image_url # Pass absolute URL
+#         })
+#
+#
+#     # Prepare context for the PDF template
+#     context = {
+#         'session': session,
+#         'farm': farm,
+#         'observations': observations_for_pdf, # Use processed observations
+#         'completed_count': completed_count,
+#         'unique_pests': unique_pests,
+#         'unique_diseases': unique_diseases,
+#         'unique_pests_count': unique_pests_count,
+#         'unique_diseases_count': unique_diseases_count,
+#         # Pass the helper function if needed directly in template (less common)
+#         # 'build_absolute_uri': build_absolute_uri 
+#     }
+#
+#     try:
+#         # Render the HTML template to a string
+#         html_string = render_to_string('core/survey_session_pdf.html', context)
+#
+#         # --- Use WeasyPrint to generate PDF ---
+#         # We need the base URL to resolve relative paths (like CSS if not inline)
+#         # For media files, absolute paths are usually better.
+#         base_url = request.build_absolute_uri('/') 
+#         print(f"PDF Gen: Base URL for WeasyPrint: {base_url}") # Debug
+#
+#         # Create WeasyPrint HTML object
+#         # Pass the base_url to help resolve relative URLs if any exist
+#         html = HTML(string=html_string, base_url=base_url) 
+#         
+#         # Generate PDF bytes
+#         pdf_bytes = html.write_pdf()
+#         print(f"PDF Gen: PDF generated successfully ({len(pdf_bytes)} bytes)") # Debug
+#
+#         # Create HTTP response
+#         response = HttpResponse(pdf_bytes, content_type='application/pdf')
+#         
+#         # Suggest a filename for the download
+#         filename = f"survey_report_{session.farm.name.replace(' ', '_')}_{session.id}.pdf"
+#         response['Content-Disposition'] = f'inline; filename="{filename}"' 
+#         # Use 'attachment;' instead of 'inline;' to force download immediately
+#
+#         return response
+#
+#     except Exception as e:
+#         # Log the error (replace with proper logging in production)
+#         print(f"Error generating PDF for session {session.id}: {e}") 
+#         messages.error(request, f"Could not generate PDF report. Error: {e}")
+#         # Redirect back to the detail page or show an error page
+#         return redirect('core:survey_session_detail', session_id=session.id)
+
+# --- End PDF Generation View --- 

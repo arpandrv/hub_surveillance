@@ -508,6 +508,7 @@ class Observation(models.Model):
     diseases_observed = models.ManyToManyField(Disease, related_name='observations', blank=True)
     notes = models.TextField(blank=True, null=True)
     # Add other fields if needed, e.g., plant_id if tracking specific plants
+    plant_sequence_number = models.PositiveIntegerField(null=True, blank=True, help_text="Sequential number of the plant checked in this session (e.g., 1, 2, 3...)")
 
     class Meta:
         ordering = ['observation_time']

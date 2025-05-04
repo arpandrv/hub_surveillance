@@ -1,0 +1,40 @@
+{% extends 'core/base.html' %} {# Assuming a base with minimal nav/footer #}
+{% load static %}
+
+{% block title %}Access Survey on Mobile{% endblock %}
+
+{% block content %}
+<div class="container mt-5 text-center">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4><i class="bi bi-phone me-2"></i>Mobile Required for Survey</h4>
+                </div>
+                <div class="card-body">
+                    <p class="lead">This survey session is designed for mobile devices to use GPS features accurately.</p>
+                    <p>Please scan the QR code below with your mobile device to continue the survey session:</p>
+                    
+                    {% if qr_code_data_uri %}
+                        <img src="{{ qr_code_data_uri }}" alt="QR Code to continue survey" class="img-fluid my-3" style="max-width: 250px; border: 1px solid #ccc; padding: 5px;">
+                    {% elif qr_generation_error %}
+                        <div class="alert alert-danger mt-3">
+                            <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Error:</strong> {{ qr_generation_error }}
+                        </div>
+                    {% else %}
+                        <p class="text-danger">Could not generate QR code. Please try accessing this page directly from your mobile device.</p>
+                    {% endif %}
+
+                    <p class="text-muted small mt-3">
+                        Session ID: {{ session_id }}
+                    </p>
+                     <hr>
+                     <a href="{% url 'core:dashboard' %}" class="btn btn-secondary btn-sm">
+                         <i class="bi bi-arrow-left"></i> Back to Dashboard
+                     </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
