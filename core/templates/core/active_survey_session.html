@@ -19,6 +19,49 @@
   .progress-tracker {
     margin-bottom: 1.5rem;
   }
+  
+  /* GPS Status Indicator */
+  .status-indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  
+  .status-indicator.waiting {
+    background-color: #ffc107;
+    animation: pulse 2s infinite;
+  }
+  
+  .status-indicator.ready {
+    background-color: #198754;
+  }
+  
+  .status-indicator.warning {
+    background-color: #fd7e14;
+  }
+  
+  .status-indicator.error {
+    background-color: #dc3545;
+  }
+  
+  /* Pulse animation for waiting status */
+  @keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.4; }
+    100% { opacity: 1; }
+  }
+  
+  /* Debug panel styling */
+  #debug-log {
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background-color: #f8f9fa;
+    padding: 8px;
+    border-radius: 4px;
+  }
 </style>
 {% endblock head_extra %}
 
@@ -241,6 +284,34 @@
     </div>
 
   </div> {# End Right Column #}
+
+</div> {# End Row #}
+
+<div class="row mb-3">
+    <div class="col-12">
+        <!-- GPS Status Indicator -->
+        <div class="gps-status-container d-flex align-items-center mb-2">
+            <div id="gps-status-indicator" class="status-indicator waiting"></div>
+            <span id="gps-status-text" class="ms-2">Waiting for GPS...</span>
+            <span id="gps-accuracy" class="ms-2 small text-muted"></span>
+            <span id="gps-timer" class="ms-2 small text-muted">0s</span>
+        </div>
+        
+        <!-- Debug Panel (Collapsible) -->
+        <div class="card mb-2">
+            <div class="card-header p-1" id="debugPanelHeader">
+                <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#debugPanel">
+                    GPS Debug Info
+                </button>
+            </div>
+            <div id="debugPanel" class="collapse">
+                <div class="card-body p-2" style="font-size: 0.8rem;">
+                    <div id="debug-log" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div> {# End Right Column #}
 
 </div> {# End Row #}
 
@@ -514,15 +585,76 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // For debugging on mobile
+    let gpsTimerInterval;
+    let gpsTimerCount = 0;
+    
+    // For continuous GPS updates (like boundary mapping)
+    let gpsWatchId = null;
+    
+    // Function to add debug messages to the debug panel
+    function addDebugMessage(message) {
+        const debugLog = document.getElementById('debug-log');
+        if (!debugLog) return;
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const msgElement = document.createElement('div');
+        msgElement.innerHTML = `<span class="text-muted">[${timestamp}]</span> ${message}`;
+        debugLog.appendChild(msgElement);
+        
+        // Auto-scroll to bottom
+        debugLog.scrollTop = debugLog.scrollHeight;
+    }
+    
+    // Function to start the GPS timer
+    function startGpsTimer() {
+        // Clear any existing timer
+        if (gpsTimerInterval) {
+            clearInterval(gpsTimerInterval);
+        }
+        
+        // Reset timer count
+        gpsTimerCount = 0;
+        const timerElement = document.getElementById('gps-timer');
+        if (timerElement) {
+            timerElement.textContent = '0s';
+        }
+        
+        // Start new timer
+        gpsTimerInterval = setInterval(() => {
+            gpsTimerCount++;
+            if (timerElement) {
+                timerElement.textContent = `${gpsTimerCount}s`;
+            }
+            
+            // If it takes too long, log the delay
+            if (gpsTimerCount > 20 && gpsTimerCount % 5 === 0) {
+                addDebugMessage(`Still waiting for GPS after ${gpsTimerCount}s...`);
+            }
+        }, 1000);
+    }
+    
+    // Function to stop the GPS timer
+    function stopGpsTimer() {
+        if (gpsTimerInterval) {
+            clearInterval(gpsTimerInterval);
+            gpsTimerInterval = null;
+            addDebugMessage(`GPS acquisition took ${gpsTimerCount} seconds`);
+        }
+    }
+
     // 1. Get GPS Location (Initial check and subsequent checks)
     function getGPSLocation(initial = false) {
         // Check for desktop testing mode
         const urlParams = new URLSearchParams(window.location.search);
         const isDesktopTesting = urlParams.get('force_desktop') === 'true';
         
+        // Add debug info
+        addDebugMessage(`Starting GPS acquisition${initial ? ' (initial)' : ' (retry)'}, desktop mode: ${isDesktopTesting}`);
+        
         // Handle desktop testing mode
         if (isDesktopTesting) {
-            console.log('Desktop testing mode detected in getGPSLocation(), bypassing GPS requirements');
+            addDebugMessage('Desktop testing mode activated, using dummy location');
             
             // Set dummy values for testing if not already set
             const latInput = document.getElementById('id_latitude');
@@ -550,6 +682,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Normal GPS acquisition for mobile devices
         if (!navigator.geolocation) {
             updateGpsDisplay('error', 'Geolocation not supported by your browser.');
+            addDebugMessage('ERROR: Geolocation not supported by browser');
             disableForm('GPS not available. Please use a device with GPS support.');
             return;
         }
@@ -561,50 +694,193 @@ document.addEventListener('DOMContentLoaded', function() {
         // If this is the initial check, show "acquiring" message
         if (initial) {
             updateGpsDisplay('waiting', 'Acquiring GPS signal...');
+            addDebugMessage('Initial GPS check, starting acquisition');
         }
         
-        navigator.geolocation.getCurrentPosition(position => {
-            // Success handler
-            const latitude = position.coords.latitude;
-            const longitude = position.coords.longitude;
-            const accuracy = position.coords.accuracy;
-            
-            console.log(`GPS Acquired: Lat: ${latitude}, Lon: ${longitude}, Acc: ${accuracy}m`);
-            updateGpsDisplay('ready', '', accuracy);
-            
-            if(latInput) latInput.value = latitude.toFixed(9);
-            if(lonInput) lonInput.value = longitude.toFixed(9);
-            if(accuracyInput) accuracyInput.value = accuracy.toFixed(1);
-            
-            // Enable the form once we have a GPS location
-            enableForm();
-            hideGpsError(); // Hide any previous error
-        }, error => {
-            // Error handler
-            let errorMsg = "GPS Error: ";
-            switch(error.code) {
-                case error.PERMISSION_DENIED: errorMsg += "Location permission denied."; break;
-                case error.POSITION_UNAVAILABLE: errorMsg += "Location information unavailable."; break;
-                case error.TIMEOUT: errorMsg += "Location request timed out."; break;
-                default: errorMsg += "An unknown error occurred."; break;
-            }
-            updateGpsDisplay('error', errorMsg);
-            showGpsError(errorMsg); // Show persistent error
-            console.error(errorMsg);
-            
-            // Check again if we're in desktop mode before disabling form
-            if (!isDesktopTesting) {
-                disableForm(errorMsg);
-            } else {
-                console.log('GPS error, but in desktop testing mode, so keeping form enabled');
-                enableForm();
-            }
-        }, {
-            enableHighAccuracy: true, // Request high accuracy
-            timeout: 10000, // 10 second timeout
-            maximumAge: 30000 // Accept a position no older than 30 seconds
-        });
+        // Start GPS timer
+        startGpsTimer();
+        addDebugMessage(`GPS acquisition started with timeout: 30s, high accuracy: true`);
+        
+        // Special handling for mobile browsers
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const browserName = navigator.userAgent.indexOf("Chrome") > -1 ? "Chrome" : 
+                          navigator.userAgent.indexOf("Safari") > -1 ? "Safari" : 
+                          navigator.userAgent.indexOf("Firefox") > -1 ? "Firefox" : "Unknown";
+                          
+        addDebugMessage(`Device detected: Mobile=${isMobile}, Browser=${browserName}`);
+        
+        // Force HTTPS for geolocation on modern browsers
+        if (window.location.protocol !== 'https:' && !window.location.hostname.includes('localhost')) {
+            addDebugMessage('WARNING: Non-HTTPS connection may affect geolocation accuracy');
+        }
+        
+        // Skip getCurrentPosition and directly use watchPosition for continuous updates
+        // This matches the boundary mapping implementation approach
+        addDebugMessage('Starting watchPosition directly (matching boundary mapping feature)');
+        startWatchPosition();
     }
+    
+    // Start continuous GPS watching (matching boundary mapping approach)
+    function startWatchPosition() {
+        // Clear any existing watch
+        if (gpsWatchId !== null) {
+            navigator.geolocation.clearWatch(gpsWatchId);
+            gpsWatchId = null;
+            addDebugMessage('Cleared previous GPS watch');
+        }
+        
+        addDebugMessage('Starting continuous GPS watching for improving accuracy');
+        
+        // Start watching position continuously - using exact same options as the boundary mapping feature
+        gpsWatchId = navigator.geolocation.watchPosition(
+            // Success handler for continuous updates
+            position => {
+                stopGpsTimer(); // Stop the timer when we get a successful position
+                processPosition(position, false); // Process with continuous flag
+            },
+            // Error handler
+            errorHandler,
+            { 
+                enableHighAccuracy: true, // Request high accuracy (important)
+                timeout: 30000,           // Set timeout to 30 seconds
+                maximumAge: 0             // Force fresh readings, don't use cached position
+            }
+        );
+    }
+    
+    // Common error handler for both getCurrentPosition and watchPosition
+    function errorHandler(error) {
+        // Error handler
+        stopGpsTimer(); // Stop the timer
+            
+        let errorMsg = "GPS Error: ";
+        let errorDetails = "";
+        
+        // Check for desktop testing mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDesktopTesting = urlParams.get('force_desktop') === 'true';
+            
+        switch(error.code) {
+            case error.PERMISSION_DENIED: 
+                errorMsg += "Location permission denied."; 
+                errorDetails = "The user denied the request for geolocation";
+                break;
+            case error.POSITION_UNAVAILABLE: 
+                errorMsg += "Location information unavailable."; 
+                errorDetails = "Location information is unavailable (possible hardware or signal issue)";
+                break;
+            case error.TIMEOUT: 
+                errorMsg += "Location request timed out. Retrying..."; 
+                errorDetails = `Request timeout after ${gpsTimerCount}s. This may be caused by poor signal strength or device GPS issues.`;
+                updateGpsDisplay('waiting', 'Retrying GPS acquisition...');
+                addDebugMessage(`TIMEOUT: GPS acquisition timed out after ${gpsTimerCount}s, scheduling retry...`);
+                    
+                // Try again after a short delay
+                setTimeout(() => {
+                    addDebugMessage('Executing scheduled GPS retry');
+                    getGPSLocation(false);
+                }, 2000);
+                return; // Exit early to avoid disabling form
+            default: 
+                errorMsg += "An unknown error occurred."; 
+                errorDetails = `Error code: ${error.code}, message: ${error.message || 'No details'}`;
+                break;
+        }
+            
+        updateGpsDisplay('error', errorMsg);
+        showGpsError(errorMsg); // Show persistent error
+        addDebugMessage(`ERROR: ${errorMsg} - ${errorDetails}`);
+            
+        // Check again if we're in desktop mode before disabling form
+        if (!isDesktopTesting) {
+            disableForm(errorMsg);
+            addDebugMessage('Form disabled due to GPS error');
+        } else {
+            addDebugMessage('GPS error, but in desktop mode, keeping form enabled');
+            enableForm();
+        }
+    }
+    
+    // Process position update (both initial and from watching)
+    function processPosition(position, isInitial) {
+        // Success handler
+        if (isInitial) {
+            stopGpsTimer(); // Stop the initial timer
+        }
+        
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+        
+        addDebugMessage(`${isInitial ? 'INITIAL' : 'IMPROVED'} GPS: Lat: ${latitude}, Lon: ${longitude}, Acc: ${accuracy}m`);
+        
+        addDebugMessage(`SUCCESS! GPS Acquired: Lat: ${latitude}, Lon: ${longitude}, Acc: ${accuracy}m`);
+        
+        // Evaluate GPS accuracy quality
+        let accuracyLevel = '';
+        if (accuracy <= 10) {
+            accuracyLevel = 'Excellent';
+        } else if (accuracy <= 30) {
+            accuracyLevel = 'Good';
+        } else if (accuracy <= 100) {
+            accuracyLevel = 'Fair';
+        } else if (accuracy <= 500) {
+            accuracyLevel = 'Poor';
+        } else {
+            accuracyLevel = 'Very Poor';
+        }
+        
+        addDebugMessage(`GPS accuracy level: ${accuracyLevel} (${accuracy}m)`);
+        
+        // Show warning for poor accuracy but allow the user to continue
+        if (accuracy > 100) {
+            // Show a warning but still allow using this position
+            const warningMessage = `GPS accuracy is ${accuracy.toFixed(0)}m (${accuracyLevel}). This may affect data quality.`;
+            updateGpsDisplay('warning', warningMessage, accuracy);
+            addDebugMessage(`WARNING: ${warningMessage}`);
+            
+            // Add a visual alert too
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-warning alert-dismissible fade show mt-2';
+            alertDiv.innerHTML = `
+                <strong>GPS Accuracy Warning:</strong> ${warningMessage}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            // Insert alert above form
+            const form = document.getElementById('observation-form');
+            if (form && form.parentNode) {
+                form.parentNode.insertBefore(alertDiv, form);
+            }
+            
+            // You might want to suggest retrying for better accuracy
+            addDebugMessage('Continuing with survey despite poor accuracy');
+        }
+            
+        // Update GPS display regardless of warning status
+        updateGpsDisplay(accuracy > 100 ? 'warning' : 'ready', accuracy > 100 ? warningMessage : '', accuracy);
+        
+        // Get the form field elements
+        const latInput = document.getElementById('id_latitude');
+        const lonInput = document.getElementById('id_longitude');
+        const accuracyInput = document.getElementById('id_gps_accuracy');
+        
+        if(latInput) latInput.value = latitude.toFixed(9);
+        if(lonInput) lonInput.value = longitude.toFixed(9);
+        if(accuracyInput) accuracyInput.value = accuracy.toFixed(1);
+        
+        // Additional details for debug
+        if (position.coords.altitude) {
+            addDebugMessage(`Additional GPS data: Altitude: ${position.coords.altitude}m, Speed: ${position.coords.speed || 'N/A'}, Heading: ${position.coords.heading || 'N/A'}`);
+        }
+        
+        // Enable the form once we have a GPS location
+        enableForm();
+        hideGpsError(); // Hide any previous error
+    }
+    
+    // REMOVED: This is a duplicate error handler function - using the one above for all error handling
+    // function errorHandler(error) {... removed to avoid duplicate function declaration ... }
 
     // --- Function for debounced auto-save --- 
     function debounce(func, wait) {
@@ -769,35 +1045,82 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateGpsDisplay(status, message = '', accuracy = null) {
+        // Get the elements from our new UI
+        const statusIndicator = document.getElementById('gps-status-indicator');
+        const statusText = document.getElementById('gps-status-text');
+        const accuracySpan = document.getElementById('gps-accuracy');
+        
+        // Also get the old UI elements for backward compatibility
         const statusDiv = document.getElementById('gps-status');
         const iconSpan = document.getElementById('gps-icon');
         const textSpan = document.getElementById('gps-text');
         
-        if (!statusDiv || !iconSpan || !textSpan) return;
+        // Add a debug message about the status update
+        addDebugMessage(`GPS status update: ${status} - ${message} - Accuracy: ${accuracy !== null ? accuracy.toFixed(1) + 'm' : 'N/A'}`);
+        
+        // Update new UI elements
+        if (statusIndicator && statusText) {
+            // Remove all status classes
+            statusIndicator.classList.remove('waiting', 'ready', 'error');
+            
+            switch (status) {
+                case 'waiting':
+                    statusIndicator.classList.add('waiting');
+                    statusText.textContent = message || 'Acquiring GPS signal...';
+                    if (accuracySpan) accuracySpan.textContent = '';
+                    break;
+                case 'ready':
+                    statusIndicator.classList.add('ready');
+                    statusText.textContent = 'GPS Ready';
+                    if (accuracySpan && accuracy !== null) {
+                        accuracySpan.textContent = `Accuracy: ${accuracy.toFixed(1)}m`;
+                    }
+                    break;
+                case 'warning':
+                    statusIndicator.classList.add('warning');
+                    statusText.textContent = message || 'GPS Warning';
+                    if (accuracySpan && accuracy !== null) {
+                        accuracySpan.textContent = `Accuracy: ${accuracy.toFixed(1)}m`;
+                    }
+                    break;
+                case 'error':
+                    statusIndicator.classList.add('error');
+                    statusText.textContent = message || 'GPS Error';
+                    if (accuracySpan) accuracySpan.textContent = '';
+                    break;
+                default:
+                    statusIndicator.classList.add('waiting');
+                    statusText.textContent = 'GPS status unknown';
+                    if (accuracySpan) accuracySpan.textContent = '';
+            }
+        }
+        
+        // For backward compatibility, also update old UI if present
+        if (statusDiv && iconSpan && textSpan) {
+            // Reset classes
+            statusDiv.classList.remove('alert-secondary', 'alert-warning', 'alert-success', 'alert-danger');
 
-        // Reset classes
-        statusDiv.classList.remove('alert-secondary', 'alert-warning', 'alert-success', 'alert-danger');
-
-        switch (status) {
-            case 'waiting':
-                statusDiv.classList.add('alert-warning');
-                iconSpan.innerHTML = '<i class="bi bi-hourglass-split"></i>';
-                textSpan.textContent = message || 'Acquiring GPS signal...';
-                break;
-            case 'ready':
-                statusDiv.classList.add('alert-success');
-                iconSpan.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
-                textSpan.textContent = `GPS Ready. Accuracy: ${accuracy !== null ? accuracy.toFixed(1) + 'm' : 'N/A'}`;
-                break;
-            case 'error':
-                statusDiv.classList.add('alert-danger');
-                iconSpan.innerHTML = '<i class="bi bi-x-octagon-fill"></i>';
-                textSpan.textContent = message || 'GPS Error.';
-                break;
-            default:
-                statusDiv.classList.add('alert-secondary');
-                iconSpan.innerHTML = '<i class="bi bi-question-circle"></i>';
-                textSpan.textContent = 'GPS status unknown.';
+            switch (status) {
+                case 'waiting':
+                    statusDiv.classList.add('alert-warning');
+                    iconSpan.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+                    textSpan.textContent = message || 'Acquiring GPS signal...';
+                    break;
+                case 'ready':
+                    statusDiv.classList.add('alert-success');
+                    iconSpan.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
+                    textSpan.textContent = `GPS Ready. Accuracy: ${accuracy !== null ? accuracy.toFixed(1) + 'm' : 'N/A'}`;
+                    break;
+                case 'error':
+                    statusDiv.classList.add('alert-danger');
+                    iconSpan.innerHTML = '<i class="bi bi-x-octagon-fill"></i>';
+                    textSpan.textContent = message || 'GPS Error.';
+                    break;
+                default:
+                    statusDiv.classList.add('alert-secondary');
+                    iconSpan.innerHTML = '<i class="bi bi-question-circle"></i>';
+                    textSpan.textContent = 'GPS status unknown.';
+            }
         }
     }
 
