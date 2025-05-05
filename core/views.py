@@ -1231,6 +1231,7 @@ def create_observation_api(request):
         # Handle image uploads
         images = request.FILES.getlist('images')
         print(f"Received {len(images)} files for observation {observation.id}")
+        saved_images = []
         
         for img_file in images:
             try:
@@ -1242,10 +1243,21 @@ def create_observation_api(request):
                     image=img_file
                 )
                 print(f"Saved image {img_file.name} (ID: {image_obj.id}) for observation {observation.id}")
+                print(f"Image URL: {image_obj.image.url}")
+                saved_images.append({
+                    'id': image_obj.id,
+                    'url': image_obj.image.url,
+                    'name': img_file.name
+                })
             except Exception as img_error:
                 print(f"Error saving image {img_file.name}: {img_error}")
                 import traceback
                 traceback.print_exc()
+        
+        # Print summary of saved images
+        print(f"SAVED IMAGES SUMMARY: {len(saved_images)} images saved")
+        for img in saved_images:
+            print(f"  - Image {img['id']}: {img['name']} -> {img['url']}")
         
         # Calculate counts for the response
         completed_observations = Observation.objects.filter(session=session, status='completed')
@@ -1267,7 +1279,7 @@ def create_observation_api(request):
                 'diseases': [{'name': d.name} for d in observation.diseases_observed.all()],
                 'notes': observation.notes,
                 'plant_sequence_number': observation.plant_sequence_number,
-                'images': [{'url': img.image.url} for img in observation.images.all()]
+                'images': [{'url': img.image.url, 'id': img.id} for img in observation.images.all()]
             },
             'counts': {
                 'completed': completed_count,

@@ -532,8 +532,19 @@ class Observation(models.Model):
 
 # Function to define upload path for observation images
 def observation_image_path(instance, filename):
-    # file will be uploaded to MEDIA_ROOT/survey_images/<session_uuid>/<observation_id>_<filename>
-    return f'survey_images/{instance.observation.session.session_id}/{instance.observation.id}_{filename}'
+    # Get the session UUID for organizing images
+    session_uuid = instance.observation.session.session_id
+    
+    # Ensure filename doesn't have problematic characters
+    import re
+    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    
+    # Add a unique identifier to prevent filename collisions
+    import uuid
+    unique_prefix = str(uuid.uuid4())[:8]
+    
+    # file will be uploaded to: MEDIA_ROOT/survey_images/<session_uuid>/<unique>_<filename>
+    return f'survey_images/{session_uuid}/{unique_prefix}_{safe_filename}'
 
 class ObservationImage(models.Model):
     """

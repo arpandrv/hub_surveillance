@@ -427,10 +427,28 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Add Image Thumbnails
+        console.log('Image data in observation:', obsData.images);
         if (obsData.images && obsData.images.length > 0) {
             content += '<div class="mt-2 observation-images">';
             obsData.images.forEach((img, index) => {
-                content += `<img src="${img.url}" alt="Observation image ${index + 1}" class="img-thumbnail" style="height: 50px; width: auto; margin-right: 5px;">`;
+                console.log(`Processing image ${index}:`, img);
+                
+                // Make sure the URL is correctly formatted
+                let imgUrl = img.url;
+                if (imgUrl) {
+                    // For absolute URLs
+                    if (!imgUrl.startsWith('http')) {
+                        // Make sure URL has leading slash if needed
+                        if (!imgUrl.startsWith('/')) {
+                            imgUrl = '/' + imgUrl;
+                        }
+                        // Make absolute URL including origin
+                        imgUrl = window.location.origin + imgUrl;
+                    }
+                    
+                    console.log(`Using image URL: ${imgUrl}`);
+                    content += `<img src="${imgUrl}" alt="Observation image ${index + 1}" class="img-thumbnail" style="height: 50px; width: auto; margin-right: 5px;" onerror="this.onerror=null; this.src=''; console.error('Image failed to load:', '${imgUrl}');">`;
+                }
             });
             content += '</div>';
         }
@@ -907,14 +925,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // Check if we got a valid result with observation data
                     if (result.status === 'success' && result.observation) {
+                        console.log("Complete observation data:", result.observation);
+                        
+                        // Check for image data specifically
+                        if (result.observation.images) {
+                            console.log("Images in response:", result.observation.images);
+                            console.log("Number of images:", result.observation.images.length);
+                        } else {
+                            console.warn("No images in observation response");
+                        }
+                        
                         // Add to list and update counts
                         addObservationToList(result.observation);
                         if (result.counts) {
                             updateUI(result.counts);
                         }
                         
-                        // Reset form
+                        // Reset form and remove hidden file inputs
                         form.reset();
+                        
+                        // Remove all file inputs that were added dynamically
+                        form.querySelectorAll('input[type="file"][style="display: none;"]').forEach(input => {
+                            console.log("Removing hidden file input:", input);
+                            input.remove();
+                        });
                         
                         // Clear stored draft ID
                         delete form.dataset.draftId;
@@ -925,6 +959,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                         if (document.getElementById('fileList')) {
                             document.getElementById('fileList').innerHTML = '<p>No files selected!</p>';
+                        }
+                        
+                        // Reset the file input element
+                        const fileElem = document.getElementById('fileElem');
+                        if (fileElem) {
+                            fileElem.value = '';
                         }
                         
                         setTimeout(() => { 
