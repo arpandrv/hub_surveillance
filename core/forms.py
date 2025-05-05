@@ -90,8 +90,7 @@ class FarmForm(forms.ModelForm):
             'formatted_address',      # Added model field
             'location_description',   # Existing field
             'size_hectares',
-            'stocking_rate',
-            'distribution_pattern'
+            'stocking_rate'
         ]
         widgets = {
             'location_description': forms.Textarea(attrs={

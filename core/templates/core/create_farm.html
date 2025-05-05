@@ -115,18 +115,6 @@
                         </div>
                     </div>
 
-                    {# Distribution Pattern Section #}
-                    <div class="mb-3">
-                        <label for="{{ form.distribution_pattern.id_for_label }}" class="form-label fw-bold">Plant Distribution Pattern:</label>
-                        <select name="{{ form.distribution_pattern.name }}" id="{{ form.distribution_pattern.id_for_label }}" 
-                                class="form-select {% if form.distribution_pattern.errors %}is-invalid{% endif %}">
-                            {% for value, text in form.distribution_pattern.field.choices %}
-                            <option value="{{ value }}" {% if form.distribution_pattern.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
-                            {% endfor %}
-                        </select>
-                        {% if form.distribution_pattern.errors %}<div class="invalid-feedback">{{ form.distribution_pattern.errors|striptags }}</div>{% endif %}
-                    </div>
-
                     {# Plant Types Display Section #}
                     <div class="mb-3">
                         <label class="form-label fw-bold">Plant Types:</label>

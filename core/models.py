@@ -349,11 +349,6 @@ class Farm(models.Model):
         blank=True, 
         related_name='farms'
     )
-    distribution_pattern = models.CharField(
-        max_length=20,
-        choices=DISTRIBUTION_CHOICES,
-        default='uniform'
-    )
     location_description = models.CharField(
         max_length=255, 
         blank=True, 

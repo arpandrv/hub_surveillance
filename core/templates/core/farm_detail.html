@@ -58,7 +58,7 @@
             </div>
             <div class="col-md-6">
                 <p><strong>Total Plants:</strong> {{ farm.total_plants|default:"-" }}</p>
-                <p><strong>Plant Distribution:</strong> {{ farm.get_distribution_pattern_display }}</p>
+                <!-- Plant Distribution Pattern removed as requested -->
                 <p><strong>Plant Types:</strong> 
                     {% if farm.plant_type %}
                         <li>{{ farm.plant_type.name }}</li> {# Assuming only one for now #}
