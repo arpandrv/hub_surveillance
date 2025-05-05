@@ -1384,6 +1384,7 @@ def survey_session_list_view(request, farm_id):
 def survey_session_detail_view(request, session_id):
     """
     Displays the details of a completed or abandoned survey session.
+    Adds test observation data for demonstration purposes.
     """
     try:
         # Fetch the session, prefetching related data for efficiency
@@ -1423,41 +1424,271 @@ def survey_session_detail_view(request, session_id):
         'images' # Prefetch images
     ).order_by('observation_time') # Order by time recorded
     
-    # --- Prepare Coordinates for Map --- #
-    observation_coords = []
-    for obs in observations:
-        if obs.latitude and obs.longitude:
-            observation_coords.append({
-                'lat': float(obs.latitude), 
-                'lon': float(obs.longitude),
-                'time': obs.observation_time.strftime('%I:%M %p'),
-                'pests': [p.name for p in obs.pests_observed.all()],
-                'diseases': [d.name for d in obs.diseases_observed.all()],
-                'has_image': obs.images.exists() # Check if image exists
-            })
+    # --- Check if we should use test data for Farm 1 --- #
+    use_test_data = False
+    all_pests = set()
+    all_diseases = set()
+    
+    if session.farm.id == 1:  # For Farm 1, use test data
+        try:
+            # Use hardcoded test data for farm boundary in proper GeoJSON format
+            # Ensure coordinates are in proper order [longitude, latitude]
+            farm_boundary_json = {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [130.83916495, -12.46017243],
+                            [130.83941962, -12.46041745],
+                            [130.83957579, -12.46026002],
+                            [130.83932478, -12.46001226],
+                            [130.83916495, -12.46017243]  # Close the polygon by repeating first point
+                        ]
+                    ]
+                }
+            }
+            
+            # Create a function to generate points within the farm boundary polygon
+            def generate_point_within_polygon():
+                # Define exact corner points of our farm polygon
+                polygon_coords = [
+                    [-12.46017243, 130.83916495],
+                    [-12.46041745, 130.83941962],
+                    [-12.46026002, 130.83957579],
+                    [-12.46001226, 130.83932478],
+                    [-12.46017243, 130.83916495]
+                ]
+                
+                # Extract min/max bounds
+                lats = [pt[0] for pt in polygon_coords]
+                lons = [pt[1] for pt in polygon_coords]
+                min_lat = min(lats)
+                max_lat = max(lats)
+                min_lon = min(lons)
+                max_lon = max(lons)
+                
+                # Generate a point with some random noise
+                # We'll generate points closer to the center for better visual effect
+                center_lat = (min_lat + max_lat) / 2
+                center_lon = (min_lon + max_lon) / 2
+
+                # This is a simplified approach - for a more complex polygon, 
+                # you'd want to use a point-in-polygon algorithm
+                import random
+                
+                # Use a triangle distribution to bias points toward center
+                def triangle_random():
+                    # Returns values biased toward 0.5 (triangle distribution)
+                    return (random.random() + random.random()) / 2
+                
+                # Generate random coordinates with stronger bias toward center
+                # This is a simple approach - points might occasionally fall outside
+                # but will generally be clustered in the center area
+                lat_range = (max_lat - min_lat) * 0.6  # Reduced range for tighter clustering
+                lon_range = (max_lon - min_lon) * 0.6
+                
+                # Generate point biased toward center
+                lat = center_lat + (triangle_random() - 0.5) * lat_range
+                lon = center_lon + (triangle_random() - 0.5) * lon_range
+                
+                # For Leaflet display
+                return lat, lon
+            
+            # Hardcoded test observation data with correctly simulated coordinates
+            observation_coords = []
+            times = ["10:15 AM", "10:20 AM", "10:25 AM", "10:30 AM", "10:35 AM",
+                     "10:40 AM", "10:45 AM", "10:50 AM", "10:55 AM", "11:00 AM",
+                     "11:05 AM", "11:10 AM", "11:15 AM", "11:20 AM", "11:25 AM",
+                     "11:30 AM", "11:35 AM", "11:40 AM", "11:45 AM", "11:50 AM"]
+            
+            # Define pests and diseases for our observations
+            pest_options = ["Mango Leaf Hopper", "Mango Tip Borer", "Mango Fruit Fly", 
+                           "Mango Scale Insect", "Mango Seed Weevil"]
+            disease_options = ["Anthracnose", "Powdery Mildew", "Stem End Rot", 
+                              "Mango Malformation", "Bacterial Black Spot"]
+            
+            # Create observations with proper coordinates
+            import random
+            for i, time in enumerate(times):
+                # Generate point within polygon
+                lat, lon = generate_point_within_polygon()
+                
+                # Randomly assign pests and diseases
+                pest_count = random.randint(0, 2)  # 0-2 pests per observation
+                disease_count = random.randint(0, 1)  # 0-1 diseases per observation
+                
+                pests = random.sample(pest_options, pest_count) if pest_count > 0 else []
+                diseases = random.sample(disease_options, disease_count) if disease_count > 0 else []
+                
+                # Create the observation data
+                observation_coords.append({
+                    "lat": lat,
+                    "lon": lon,
+                    "time": time,
+                    "pests": pests,
+                    "diseases": diseases,
+                    "has_image": random.choice([True, False])
+                })
+            
+            # Print the first few coordinates for debugging
+            print(f"First test coordinate: lat={observation_coords[0]['lat']}, lon={observation_coords[0]['lon']}")
+            print(f"Farm boundary data (test): {json.dumps(farm_boundary_json)}")
+            
+            # Extract unique pests and diseases from test data for statistics
+            for obs in observation_coords:
+                for pest in obs['pests']:
+                    all_pests.add(pest)
+                for disease in obs['diseases']:
+                    all_diseases.add(disease)
+            
+            use_test_data = True
+            print(f"Using test data for farm ID 1 with {len(observation_coords)} observations")
+        except Exception as e:
+            use_test_data = False
+            print(f"Error setting up test data, falling back to actual data: {e}")
+    
+    # --- Prepare Coordinates for Map (for non-test farms) --- #
+    if not use_test_data:
+        observation_coords = []
+        for obs in observations:
+            if obs.latitude and obs.longitude:
+                observation_coords.append({
+                    'lat': float(obs.latitude), 
+                    'lon': float(obs.longitude),
+                    'time': obs.observation_time.strftime('%I:%M %p'),
+                    'pests': [p.name for p in obs.pests_observed.all()],
+                    'diseases': [d.name for d in obs.diseases_observed.all()],
+                    'has_image': obs.images.exists() # Check if image exists
+                })
+    
     observation_coords_json = json.dumps(observation_coords)
 
     # --- Calculate Stats --- #
-    completed_count = observations.count()
-    unique_pests = Pest.objects.filter(observations__session=session).distinct()
-    unique_diseases = Disease.objects.filter(observations__session=session).distinct()
+    if use_test_data:
+        # For test data, use our extracted counts
+        completed_count = len(observation_coords)
+        
+        # Create simple objects with a 'name' attribute for the template
+        class MockPest:
+            def __init__(self, name):
+                self.name = name
+                
+        class MockDisease:
+            def __init__(self, name):
+                self.name = name
+        
+        # Create mock observations for the template
+        class MockObservation:
+            def __init__(self, data):
+                self.id = f"mock-{id(data)}"  # Create a unique ID
+                try:
+                    self.observation_time = datetime.strptime(data['time'], '%I:%M %p')
+                except (ValueError, TypeError):
+                    self.observation_time = timezone.now()
+                self.latitude = data['lat']
+                self.longitude = data['lon']
+                self.gps_accuracy = 5.0  # Mock accuracy value
+                self.notes = f"Observation at {data['time']}"
+                self._pests = data['pests']
+                self._diseases = data['diseases']
+                self._has_image = data['has_image']
+                
+            # Mock the relationships as properties
+            @property
+            def pests_observed(self):
+                class MockRelation:
+                    def __init__(self, names):
+                        self.names = names
+                    def all(self):
+                        return [MockPest(name) for name in self.names]
+                return MockRelation(self._pests)
+                
+            @property
+            def diseases_observed(self):
+                class MockRelation:
+                    def __init__(self, names):
+                        self.names = names
+                    def all(self):
+                        return [MockDisease(name) for name in self.names]
+                return MockRelation(self._diseases)
+                
+            @property
+            def images(self):
+                class MockImages:
+                    def __init__(self, has_image):
+                        self.has_image = has_image
+                    def exists(self):
+                        return self.has_image
+                    def first(self):
+                        if not self.has_image:
+                            return None
+                        return type('MockImage', (), {'image': type('MockImageField', (), {'url': '/static/img/mock-image.jpg'})})
+                return MockImages(self._has_image)
+        
+        # Create the mock observations
+        observations = [MockObservation(data) for data in observation_coords]
+        
+        # Create a mock QuerySet class with count method
+        class MockQuerySet:
+            def __init__(self, items):
+                self.items = items
+            
+            def count(self):
+                return len(self.items)
+                
+            def __iter__(self):
+                return iter(self.items)
+        
+        # Create objects for template rendering wrapped in MockQuerySet
+        unique_pests = MockQuerySet([MockPest(name) for name in all_pests])
+        unique_diseases = MockQuerySet([MockDisease(name) for name in all_diseases])
+    else:
+        # For real data, use the database
+        completed_count = observations.count()
+        unique_pests = Pest.objects.filter(observations__session=session).distinct()
+        unique_diseases = Disease.objects.filter(observations__session=session).distinct()
 
+    # Add farm boundary data to context
+    farm_boundary_json = session.farm.boundary if session.farm.boundary else None
+    
+    # Add debug info
+    if use_test_data:
+        print(f"Using {len(all_pests)} unique pests and {len(all_diseases)} unique diseases from test data")
+        
+        # For test data, farm_boundary_json is already in the right format (Feature)
+        # Just convert it to a string
+        farm_boundary_json_str = json.dumps(farm_boundary_json)
+        
+        # Debug the final GeoJSON that will be sent to the template
+        print(f"Final GeoJSON for farm boundary: {farm_boundary_json_str}")
+    else:
+        # For real data, the boundary is already a JSON string
+        farm_boundary_json_str = farm_boundary_json
+    
     context = {
         'session': session,
         'farm': session.farm,
         'observations': observations,
         'completed_count': completed_count,
-        'unique_pests_count': unique_pests.count(),
-        'unique_diseases_count': unique_diseases.count(),
+        'unique_pests_count': unique_pests.count(), # Now works for both test and real data
+        'unique_diseases_count': unique_diseases.count(), # Now works for both test and real data
         'unique_pests': unique_pests,
         'unique_diseases': unique_diseases,
-        'observation_coords_json': observation_coords_json # Add coordinates JSON to context
+        'observation_coords_json': observation_coords_json, # Add coordinates JSON to context
+        'farm_boundary_json': farm_boundary_json_str, # Add farm boundary data as JSON string
+        'using_test_data': use_test_data  # Flag to indicate we're using test data
     }
 
     # --- DEBUG: Print context before rendering ---
     print("\\n--- DEBUG: Context for survey_session_detail ---")
     print(f"Session ID: {session.session_id}")
-    print(f"Observation Coords JSON: {observation_coords_json}") 
+    print(f"Farm ID: {session.farm.id}")
+    print(f"Using test data: {use_test_data}")
+    print(f"Observation count: {completed_count}")
+    print(f"Unique pests: {context['unique_pests_count']}")
+    print(f"Unique diseases: {context['unique_diseases_count']}")
     print("--------------------------------------------\\n")
 
     return render(request, 'core/survey_session_detail.html', context) 
@@ -1573,3 +1804,116 @@ def survey_session_detail_view(request, session_id):
 #         return redirect('core:survey_session_detail', session_id=session.id)
 
 # --- End PDF Generation View --- 
+
+@login_required
+def test_heatmap_view(request):
+    """A simple test view to demonstrate the heatmap functionality with static data."""
+    # Get a random farm if the user has any
+    farm = Farm.objects.filter(owner=request.user.grower_profile).first()
+    
+    if not farm:
+        messages.warning(request, "You need at least one farm to test the heatmap.")
+        return redirect('core:myfarms')
+    
+    # Create a mock session object with basic attributes for template rendering
+    class MockSession:
+        def __init__(self, farm, user):
+            self.farm = farm
+            self.surveyor = user
+            self.session_id = 'test-session'
+            self.start_time = timezone.now() - timedelta(hours=2)
+            self.end_time = timezone.now() - timedelta(minutes=30)
+            self.status = 'completed'
+            self.target_plants_surveyed = 20
+        
+        def get_status_display(self):
+            return "Completed"
+            
+        def get_status_badge_class(self):
+            return "success"
+            
+        @property
+        def duration(self):
+            return "1 hour 30 minutes"
+    
+    # Create mock session
+    mock_session = MockSession(farm, request.user)
+    
+    # Create mock pest and disease objects
+    class MockItem:
+        def __init__(self, name):
+            self.name = name
+    
+    mock_pests = [MockItem(p) for p in ['Mango Leaf Hopper', 'Mango Tip Borer', 'Mango Fruit Fly', 'Mango Scale Insect', 'Mango Seed Weevil']]
+    mock_diseases = [MockItem(d) for d in ['Anthracnose', 'Powdery Mildew', 'Stem End Rot', 'Mango Malformation', 'Bacterial Black Spot']]
+    
+    # Create mock observations
+    class MockObservation:
+        def __init__(self, time, lat, lon, pests, diseases, has_image=False, notes="Test observation"):
+            self.observation_time = time
+            self.latitude = lat
+            self.longitude = lon
+            self.gps_accuracy = 5.0
+            self.notes = notes
+            self._pests = pests
+            self._diseases = diseases
+            self.has_image = has_image
+        
+        class MockRelated:
+            def __init__(self, items):
+                self.items = items
+            def all(self):
+                return self.items
+            def first(self):
+                return None if not self.items else self.items[0]
+            def exists(self):
+                return bool(self.items)
+        
+        @property        
+        def pests_observed(self):
+            return self.MockRelated(self._pests)
+            
+        @property
+        def diseases_observed(self):
+            return self.MockRelated(self._diseases)
+            
+        @property
+        def images(self):
+            return self.MockRelated([])
+    
+    # Generate 20 mock observations
+    mock_observations = []
+    import random
+    start_time = timezone.now() - timedelta(hours=2)
+    
+    for i in range(20):
+        obs_time = start_time + timedelta(minutes=i*5)
+        obs_pests = random.sample(mock_pests, random.randint(0, 2))
+        obs_diseases = random.sample(mock_diseases, random.randint(0, 1))
+        has_image = random.choice([True, False])
+        
+        mock_observations.append(
+            MockObservation(
+                time=obs_time,
+                lat=0,  # These will be ignored since we're using client-side coordinates
+                lon=0,  # These will be ignored since we're using client-side coordinates
+                pests=obs_pests,
+                diseases=obs_diseases,
+                has_image=has_image,
+                notes=f"Test observation #{i+1}"
+            )
+        )
+    
+    # Render the test template with minimal context
+    context = {
+        'session': mock_session,
+        'farm': farm,
+        'completed_count': 20,
+        'unique_pests_count': len(mock_pests),
+        'unique_diseases_count': len(mock_diseases),
+        'unique_pests': mock_pests,
+        'unique_diseases': mock_diseases,
+        'observations': mock_observations
+    }
+    
+    return render(request, 'core/survey_session_detail_test.html', context) 

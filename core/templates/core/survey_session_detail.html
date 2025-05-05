@@ -46,6 +46,42 @@
       bottom: -20px;
       font-size: 12px;
   }
+  /* Enhanced layer control styling */
+  .leaflet-control-layers {
+      border-radius: 8px !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+      background-color: rgba(45, 45, 45, 0.85) !important;
+      color: white !important;
+      border: none !important;
+      padding: 8px 12px !important;
+  }
+  .leaflet-control-layers-expanded {
+      width: auto !important;
+      min-width: 150px !important;
+  }
+  .leaflet-control-layers-list {
+      margin-bottom: 0 !important;
+  }
+  .leaflet-control-layers-selector {
+      margin-right: 5px !important;
+  }
+  .leaflet-control-layers-overlays label {
+      display: block !important;
+      padding: 4px 6px !important;
+      margin: 0 !important;
+      border-radius: 4px !important;
+      transition: background-color 0.2s !important;
+      color: white !important;
+  }
+  .leaflet-control-layers-overlays label:hover {
+      background-color: rgba(255,255,255,0.1) !important;
+  }
+  .leaflet-control-layers-base label {
+      color: white !important;
+  }
+  .leaflet-control-layers-overlays {
+      padding-top: 5px !important;
+  }
 </style>
 {% endblock head_extra %}
 
@@ -104,7 +140,18 @@
         {# This is the div the JavaScript looks for #}
         <div id="observationMap"></div> 
         <div class="heatmap-legend" title="Intensity of pest/disease observations"></div>
-        <p class="text-muted mt-3 small">Colors represent concentration of pest and disease observations. Brighter areas indicate higher concentrations of detected pests or diseases.</p>
+        <div class="row mt-3">
+            <div class="col-md-8">
+                <p class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i> Colors represent concentration of pest and disease observations. Brighter areas indicate higher concentrations of detected pests or diseases.
+                </p>
+            </div>
+            <div class="col-md-4">
+                <p class="text-muted small text-md-end">
+                    <i class="bi bi-layers me-1"></i> Use the controls in the top-right corner to toggle map layers.
+                </p>
+            </div>
+        </div>
         {# Message if no coords were passed (JS also handles this) #}
         {% if not observation_coords_json or observation_coords_json == '[]' %} 
             <p class="text-muted mt-2">No GPS coordinates were recorded for observations in this session.</p>
@@ -173,11 +220,12 @@
     <i class="bi bi-arrow-left me-1"></i> Back to Session List
 </a>
 
-{# --- Add Download PDF Button --- #}
-<a href="{% url 'core:survey_session_pdf' session.id %}" class="btn btn-info ms-2" target="_blank">
+{# --- PDF Download Button (Temporarily disabled) --- #}
+{# Will implement PDF generation functionality later
+<a href="#" class="btn btn-info ms-2" target="_blank">
     <i class="bi bi-file-earmark-pdf me-1"></i> Download PDF Report
 </a>
-{# --- End Download PDF Button --- #}
+#}
 
 {% endblock %}
 
@@ -189,15 +237,19 @@
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 {# Safely pass coordinates data #}
 {{ observation_coords_json|json_script:"observation-coords-data" }}
+{# Safely pass farm boundary data #}
+{{ farm_boundary_json|safe|json_script:"farm-boundary-data" }}
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     console.log("DOM fully loaded and parsed");
     const coordsDataElement = document.getElementById('observation-coords-data'); 
+    const boundaryDataElement = document.getElementById('farm-boundary-data');
     const mapElement = document.getElementById('observationMap');
     
     console.log("Map Element Found:", mapElement);
     console.log("Coords Data Element Found:", coordsDataElement);
+    console.log("Boundary Data Element Found:", boundaryDataElement);
     
     if (coordsDataElement && mapElement) {
         console.log("Attempting to parse coordinates data...");
@@ -255,14 +307,90 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 // Initialize map with dark theme for better visualization
-                const map = L.map('observationMap').setView([centerLat, centerLon], 15);
+                const map = L.map('observationMap', {
+                    center: [centerLat, centerLon],
+                    zoom: 15,
+                    maxBoundsViscosity: 1.0, // Make bounds "hard" - prevents moving outside bounds
+                    bounceAtZoomLimits: true, // Bounce effect when hitting zoom limits
+                    zoomSnap: 0.5, // Allow finer zoom control
+                    zoomDelta: 0.5, // Smaller zoom steps
+                    wheelDebounceTime: 100 // Smoother mouse wheel zooming
+                });
 
                 // Create a more sci-fi looking tile layer - CartoDB Dark Matter
                 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
                     subdomains: 'abcd',
-                    maxZoom: 19
+                    maxZoom: 19,
+                    noWrap: true // Prevents the map from repeating across longitude
                 }).addTo(map);
+                
+                // Add the farm boundary if available
+                let farmBoundary = null;
+                try {
+                    // Try to get the farm boundary data
+                    if (boundaryDataElement) {
+                        let boundaryData = null;
+                        try {
+                            boundaryData = JSON.parse(boundaryDataElement.textContent || 'null');
+                            console.log("Parsed boundary data:", boundaryData);
+                        } catch (e) {
+                            console.error("Error parsing boundary data:", e);
+                            // Try again with double-parsed JSON if needed
+                            try {
+                                const text = boundaryDataElement.textContent || 'null';
+                                if (typeof text === 'string' && text.startsWith('"') && text.endsWith('"')) {
+                                    // Handle double-encoded JSON
+                                    const unescaped = JSON.parse(text);
+                                    boundaryData = JSON.parse(unescaped);
+                                    console.log("Successfully parsed double-encoded JSON:", boundaryData);
+                                }
+                            } catch (e2) {
+                                console.error("Second parse attempt failed:", e2);
+                            }
+                        }
+                        
+                        if (boundaryData) {
+                            // Extract the geometry if this is a Feature
+                            let geoJsonData = boundaryData;
+                            if (boundaryData.type === 'Feature' && boundaryData.geometry) {
+                                geoJsonData = boundaryData.geometry;
+                            }
+                            
+                            // Convert MultiPolygon to Polygon if necessary
+                            if (geoJsonData.type === 'MultiPolygon' && geoJsonData.coordinates && 
+                                geoJsonData.coordinates.length === 1 && geoJsonData.coordinates[0].length === 1) {
+                                geoJsonData = {
+                                    type: 'Polygon',
+                                    coordinates: geoJsonData.coordinates[0]
+                                };
+                                console.log("Converted MultiPolygon to Polygon:", geoJsonData);
+                            }
+                            
+                            // Convert the GeoJSON boundary to a Leaflet layer
+                            farmBoundary = L.geoJSON(geoJsonData, {
+                                style: {
+                                    color: '#00ffff',       // Cyan border
+                                    weight: 3,              // Border thickness
+                                    opacity: 0.8,           // Border opacity
+                                    fillColor: '#00ffff',   // Cyan fill
+                                    fillOpacity: 0.1        // Very transparent fill
+                                }
+                            }).addTo(map);
+                            
+                            // Fit map to the boundary if there are no observations
+                            if (observationCoords.length === 0 && farmBoundary) {
+                                map.fitBounds(farmBoundary.getBounds());
+                            }
+                            
+                            console.log("Added farm boundary to map");
+                        } else {
+                            console.log("No farm boundary data available");
+                        }
+                    }
+                } catch (boundaryError) {
+                    console.error("Error adding farm boundary:", boundaryError);
+                }
                 
                 // Prepare heatmap data points
                 const heatData = [];
@@ -320,7 +448,117 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }).addTo(map);
                 
+                // Add markers for each observation point
+                const markers = L.layerGroup().addTo(map);
+                
+                // Create markers for each observation
+                observationCoords.forEach((coord, index) => {
+                    if (coord && typeof coord.lat === 'number' && typeof coord.lon === 'number') {
+                        // Create marker with custom icon
+                        const markerHtml = `
+                            <div class="observation-marker" style="position: relative;">
+                                <div style="background-color: white; border-radius: 50%; width: 12px; height: 12px; border: 2px solid #333;"></div>
+                                <span style="position: absolute; top: -8px; left: 16px; background-color: rgba(0,0,0,0.7); 
+                                            color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px;">
+                                    ${index + 1}
+                                </span>
+                            </div>
+                        `;
+                        
+                        const icon = L.divIcon({
+                            html: markerHtml,
+                            className: 'observation-marker-container',
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
+                        });
+                        
+                        // Create marker
+                        const marker = L.marker([coord.lat, coord.lon], {
+                            icon: icon,
+                            title: `Observation #${index + 1}`
+                        }).addTo(markers);
+                        
+                        // Create popup with observation details
+                        let popupContent = `
+                            <div style="min-width: 200px;">
+                                <h6>Observation #${index + 1}</h6>
+                                <p><strong>Time:</strong> ${coord.time}</p>
+                        `;
+                        
+                        if (coord.pests && coord.pests.length > 0) {
+                            popupContent += `<p><strong>Pests:</strong> ${coord.pests.join(', ')}</p>`;
+                        }
+                        
+                        if (coord.diseases && coord.diseases.length > 0) {
+                            popupContent += `<p><strong>Diseases:</strong> ${coord.diseases.join(', ')}</p>`;
+                        }
+                        
+                        if (coord.has_image) {
+                            popupContent += `<p><i class="bi bi-camera"></i> Has image</p>`;
+                        }
+                        
+                        popupContent += `</div>`;
+                        
+                        marker.bindPopup(popupContent);
+                    }
+                });
+                
+                // Add layer control to toggle between heatmap, markers, and farm boundary
+                const baseMaps = {}; // No base maps to toggle between
+                const overlayMaps = {
+                    "<i class='bi bi-thermometer-half text-danger'></i> Heatmap": heat,
+                    "<i class='bi bi-geo-alt-fill text-info'></i> Observation Points": markers
+                };
+                
+                // Add farm boundary to layer control if available
+                if (farmBoundary) {
+                    overlayMaps["<i class='bi bi-bounding-box text-primary'></i> Farm Boundary"] = farmBoundary;
+                }
+                
+                // Add layer control with custom options
+                const layerControl = L.control.layers(baseMaps, overlayMaps, {
+                    collapsed: false,
+                    position: 'topright'
+                }).addTo(map);
+                
+                // Add a title to the layer control
+                const layerControlElement = layerControl.getContainer();
+                const layerControlTitle = document.createElement('div');
+                layerControlTitle.innerHTML = '<strong style="display: block; margin-bottom: 8px; font-size: 14px;">Display Options</strong>';
+                layerControlTitle.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+                layerControlTitle.style.paddingBottom = '5px';
+                layerControlTitle.style.marginBottom = '8px';
+                
+                // Insert the title at the beginning of the layer control
+                layerControlElement.insertBefore(
+                    layerControlTitle, 
+                    layerControlElement.firstChild
+                );
+                
+                // Add a "Reset View" button to re-center the map
+                const resetViewControl = L.control({position: 'topleft'});
+                resetViewControl.onAdd = function() {
+                    const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                    div.innerHTML = '<a href="#" title="Reset map view to farm" style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; background:white; text-decoration:none; color:#333;"><i class="bi bi-house"></i></a>';
+                    
+                    div.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        // Reset to original view with slight animation
+                        map.flyToBounds(bounds.pad(0.1), {
+                            duration: 0.5,
+                            easeLinearity: 0.5
+                        });
+                        return false;
+                    };
+                    
+                    return div;
+                };
+                resetViewControl.addTo(map);
+                
                 // Add a pulsating effect for the highest intensity point
+                // Include it in the markers layer group so it toggles with observation points
+                let pulseMarker = null;
                 if (heatData.length > 0) {
                     // Create a sorted copy of heatData by intensity
                     const sortedData = [...heatData].sort((a, b) => b[2] - a[2]);
@@ -333,9 +571,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         iconSize: [20, 20]
                     });
                     
-                    const pulseMarker = L.marker([hotspot[0], hotspot[1]], {
-                        icon: pulseIcon
-                    }).addTo(map);
+                    // Add the pulseMarker to the markers layer group instead of directly to map
+                    pulseMarker = L.marker([hotspot[0], hotspot[1]], {
+                        icon: pulseIcon,
+                        title: 'Highest intensity point'
+                    }).addTo(markers); // Add to markers layer group
+                    
+                    // Add popup for the hotspot
+                    pulseMarker.bindPopup('<div style="text-align:center;"><strong>Hotspot</strong><br>Highest concentration of pest/disease observations</div>');
                     
                     // Add pulsating effect with CSS
                     const style = document.createElement('style');
@@ -368,11 +611,85 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.head.appendChild(style);
                 }
                 
-                // Fit map to all points
-                if (heatData.length > 0) {
-                    // Create bounds from heat data points
-                    const bounds = L.latLngBounds(heatData.map(point => [point[0], point[1]]));
-                    map.fitBounds(bounds.pad(0.1)); // Add 10% padding
+                // Fit map to all points and/or farm boundary and restrict the view
+                if (heatData.length > 0 || farmBoundary) {
+                    let bounds;
+                    
+                    if (heatData.length > 0) {
+                        // Create bounds from heat data points
+                        bounds = L.latLngBounds(heatData.map(point => [point[0], point[1]]));
+                        
+                        // Extend bounds with farm boundary if available
+                        if (farmBoundary) {
+                            bounds.extend(farmBoundary.getBounds());
+                        }
+                    } else if (farmBoundary) {
+                        // Use only farm boundary if no heat points
+                        bounds = farmBoundary.getBounds();
+                    }
+                    
+                    // Calculate a larger area that includes the farm and some surrounding area
+                    // This adds a buffer of about 2-3 streets around the farm (roughly 300-500 meters)
+                    const paddedBounds = bounds.pad(0.3); // 30% padding to include surrounding area
+                    
+                    // Apply the bounds with padding for initial view
+                    map.fitBounds(bounds.pad(0.1)); // 10% padding for initial view
+                    
+                    // Set max bounds to restrict panning (slightly larger than padded bounds)
+                    map.setMaxBounds(paddedBounds.pad(0.1)); // Additional 10% to avoid hard stops at edges
+                    
+                    // Set min and max zoom levels to prevent zooming too far in or out
+                    const currentZoom = map.getZoom();
+                    map.setMinZoom(Math.max(currentZoom - 2, 12)); // Min zoom: current zoom - 2 levels or 12, whichever is larger
+                    map.setMaxZoom(19); // Max zoom: street level detail
+                    
+                    // Add a small bounce effect when user tries to pan outside bounds
+                    map.on('drag', function() {
+                        map.panInsideBounds(paddedBounds, { animate: false });
+                    });
+                    
+                    // Add a subtle notification when users hit the bounds
+                    let boundsNotification = null;
+                    let notificationTimeout = null;
+                    
+                    const showBoundsNotification = () => {
+                        // Clear existing timeout and notification
+                        if (notificationTimeout) clearTimeout(notificationTimeout);
+                        if (boundsNotification) boundsNotification.remove();
+                        
+                        // Create and add notification
+                        boundsNotification = L.control({position: 'bottomleft'});
+                        boundsNotification.onAdd = function() {
+                            const div = L.DomUtil.create('div', 'bounds-notification');
+                            div.innerHTML = '<div style="background-color: rgba(0,0,0,0.7); color: white; padding: 8px 12px; border-radius: 4px; font-size: 13px;">' +
+                                           '<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> View limited to farm area</div>';
+                            return div;
+                        };
+                        boundsNotification.addTo(map);
+                        
+                        // Set timeout to remove notification
+                        notificationTimeout = setTimeout(() => {
+                            if (boundsNotification) {
+                                boundsNotification.remove();
+                                boundsNotification = null;
+                            }
+                        }, 2000);
+                    };
+                    
+                    // Show notification on bounds events
+                    map.on('moveend', function() {
+                        if (map.getBounds().intersects(paddedBounds) && 
+                            !paddedBounds.contains(map.getBounds())) {
+                            showBoundsNotification();
+                        }
+                    });
+                    
+                    // Also show notification on zoom limits
+                    map.on('zoomend', function() {
+                        if (map.getZoom() === map.getMinZoom() || map.getZoom() === map.getMaxZoom()) {
+                            showBoundsNotification();
+                        }
+                    });
                 }
                 
                 console.log("Heatmap initialization complete.");

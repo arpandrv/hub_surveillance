@@ -78,4 +78,7 @@ urlpatterns = [
     path('sessions/<uuid:session_id>/detail/', views.survey_session_detail_view, name='survey_session_detail'), 
     # ---> NEW URL for PDF Generation <---
     # path('sessions/<uuid:session_id>/pdf/', views.generate_survey_pdf_view, name='survey_session_pdf'),
+    
+    # Test URL for heatmap visualization
+    path('test/heatmap/', views.test_heatmap_view, name='test_heatmap'),
 ]

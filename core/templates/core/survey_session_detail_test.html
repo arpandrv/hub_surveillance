@@ -1,0 +1,570 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Survey Details: {{ farm.name }} ({{ session.start_time|date:"M j, Y" }}){% endblock %}
+
+{% block heading %}Survey Session Details{% endblock %}
+
+{% block head_extra %}
+{# Add Leaflet CSS #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<style>
+  .observation-card {
+    margin-bottom: 1rem;
+  }
+  .observation-card img {
+    max-width: 100px; /* Limit thumbnail size */
+    height: auto;
+  }
+  /* Style for the map - Ensure dimensions and visibility */
+  #observationMap {
+      display: block; /* Ensure it's not hidden */
+      height: 400px;  /* Explicit height */
+      width: 100%;    /* Explicit width */
+      border: 1px solid #ccc;
+      border-radius: .375rem;
+      margin-bottom: 1.5rem; 
+  }
+  /* Gradient legend */
+  .heatmap-legend {
+      position: relative;
+      height: 30px;
+      background: linear-gradient(to right, rgba(0,0,255,0.5), rgba(0,255,0,0.5), rgba(255,255,0,0.5), rgba(255,0,0,0.5));
+      margin-top: 10px;
+      border-radius: 3px;
+  }
+  .heatmap-legend::before {
+      content: 'Low';
+      position: absolute;
+      left: 0;
+      bottom: -20px;
+      font-size: 12px;
+  }
+  .heatmap-legend::after {
+      content: 'High';
+      position: absolute;
+      right: 0;
+      bottom: -20px;
+      font-size: 12px;
+  }
+  /* Enhanced layer control styling */
+  .leaflet-control-layers {
+      border-radius: 8px !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+      background-color: rgba(45, 45, 45, 0.85) !important;
+      color: white !important;
+      border: none !important;
+      padding: 8px 12px !important;
+  }
+  .leaflet-control-layers-expanded {
+      width: auto !important;
+      min-width: 150px !important;
+  }
+  .leaflet-control-layers-list {
+      margin-bottom: 0 !important;
+  }
+  .leaflet-control-layers-selector {
+      margin-right: 5px !important;
+  }
+  .leaflet-control-layers-overlays label {
+      display: block !important;
+      padding: 4px 6px !important;
+      margin: 0 !important;
+      border-radius: 4px !important;
+      transition: background-color 0.2s !important;
+      color: white !important;
+  }
+  .leaflet-control-layers-overlays label:hover {
+      background-color: rgba(255,255,255,0.1) !important;
+  }
+  .leaflet-control-layers-base label {
+      color: white !important;
+  }
+  .leaflet-control-layers-overlays {
+      padding-top: 5px !important;
+  }
+</style>
+{% endblock head_extra %}
+
+{% block content %}
+{# Session Summary Card #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-primary text-white">
+        <i class="bi bi-clipboard-data me-1"></i> Session Summary
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <p><strong>Farm:</strong> <a href="{% url 'core:farm_detail' farm.id %}">{{ farm.name }}</a></p>
+                <p><strong>Surveyor:</strong> {{ session.surveyor.username }}</p>
+                <p><strong>Status:</strong> <span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span></p>
+            </div>
+            <div class="col-md-6">
+                <p><strong>Started:</strong> {{ session.start_time|date:"M j, Y, P" }}</p>
+                <p><strong>Ended:</strong> {{ session.end_time|date:"P"|default:"-" }}</p>
+                <p><strong>Duration:</strong> {{ session.duration|default:"-" }}</p>
+            </div>
+        </div>
+        <hr>
+        <div class="row">
+             <div class="col-md-4">
+                <p><strong>Target Observations:</strong> {{ session.target_plants_surveyed|default:"Not Set" }}</p>
+             </div>
+             <div class="col-md-4">
+                <p><strong>Observations Recorded:</strong> {{ completed_count }}</p>
+             </div>
+             <div class="col-md-4">
+                {# Progress bar (optional, can reuse active session logic if needed) #}
+             </div>
+        </div>
+        <div class="row mt-2">
+             <div class="col-md-6">
+                <p><strong>Unique Pests Found ({{ unique_pests_count }}):</strong> 
+                    {% for p in unique_pests %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                </p>
+             </div>
+              <div class="col-md-6">
+                <p><strong>Unique Diseases Found ({{ unique_diseases_count }}):</strong> 
+                    {% for d in unique_diseases %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                </p>
+             </div>
+        </div>
+    </div>
+</div>
+
+{# --- Map Card --- #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <i class="bi bi-map me-1"></i> Pest & Disease Intensity Map
+    </div>
+    <div class="card-body">
+        {# This is the div the JavaScript looks for #}
+        <div id="observationMap"></div> 
+        <div class="heatmap-legend" title="Intensity of pest/disease observations"></div>
+        <div class="row mt-3">
+            <div class="col-md-8">
+                <p class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i> Colors represent concentration of pest and disease observations. Brighter areas indicate higher concentrations of detected pests or diseases.
+                </p>
+            </div>
+            <div class="col-md-4">
+                <p class="text-muted small text-md-end">
+                    <i class="bi bi-layers me-1"></i> Use the controls in the top-right corner to toggle map layers.
+                </p>
+            </div>
+        </div>
+        {# Message if no coords were passed (JS also handles this) #}
+        {% if not observation_coords_json or observation_coords_json == '[]' %} 
+            <p class="text-muted mt-2">No GPS coordinates were recorded for observations in this session.</p>
+        {% endif %}
+    </div>
+</div>
+
+{# Observations List #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <i class="bi bi-binoculars me-1"></i> Observations Recorded ({{ completed_count }})
+    </div>
+    <div class="card-body">
+        {% if observations %}
+            {% for obs in observations %}
+                <div class="card observation-card">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="card-title">Observation at {{ obs.observation_time|date:"P" }}</h6>
+                                <p class="card-text small text-muted mb-1">
+                                    GPS: 
+                                    {% if obs.latitude and obs.longitude %}
+                                        {{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }}
+                                        (Accuracy: {{ obs.gps_accuracy|floatformat:1|default:"?" }}m)
+                                        {# Add link to external map #}
+                                        <a href="https://www.google.com/maps/search/?api=1&query={{ obs.latitude }},{{ obs.longitude }}" target="_blank" class="ms-1"><i class="bi bi-geo-alt-fill"></i></a>
+                                    {% else %}
+                                        Not recorded
+                                    {% endif %}
+                                </p>
+                                <p class="card-text mb-1">
+                                    <strong>Pests:</strong> 
+                                    {% for p in obs.pests_observed.all %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                                </p>
+                                <p class="card-text mb-1">
+                                    <strong>Diseases:</strong> 
+                                    {% for d in obs.diseases_observed.all %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                                </p>
+                                {% if obs.notes %}
+                                <p class="card-text mt-2"><strong>Notes:</strong> {{ obs.notes|linebreaksbr }}</p>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                {% with first_image=obs.images.first %}
+                                    {% if first_image %}
+                                        <img src="{{ first_image.image.url }}" alt="Observation image" class="img-thumbnail mb-2">
+                                        {# Add link to view all images later? #}
+                                    {% else %}
+                                        <p class="text-muted small text-center mt-3">(No image)</p>
+                                    {% endif %}
+                                {% endwith %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted">No observations were recorded in this session.</p>
+        {% endif %}
+    </div>
+</div>
+
+<a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Back to Session List
+</a>
+
+{# --- PDF Download Button (Temporarily disabled) --- #}
+{# Will implement PDF generation functionality later
+<a href="#" class="btn btn-info ms-2" target="_blank">
+    <i class="bi bi-file-earmark-pdf me-1"></i> Download PDF Report
+</a>
+#}
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{# Add Leaflet JS #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+{# Add Leaflet.heat plugin for heatmap #}
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM fully loaded and parsed");
+    
+    // For testing, we'll create a sample dataset and farm boundary
+    // This simulates data that would normally come from the backend
+    
+    // 1. Define farm boundary (Darwin area)
+    const farmBoundary = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [130.83916495, -12.46017243],
+                [130.83941962, -12.46041745],
+                [130.83957579, -12.46026002],
+                [130.83932478, -12.46001226],
+                [130.83916495, -12.46017243]
+            ]
+        ]
+    };
+    
+    // 2. Define sample observation coordinates
+    const testObservations = [
+        {"lat": -12.460193, "lon": 130.839287, "time": "10:15 AM", "pests": ["Mango Leaf Hopper", "Mango Tip Borer"], "diseases": ["Anthracnose"], "has_image": true},
+        {"lat": -12.460253, "lon": 130.839342, "time": "10:20 AM", "pests": ["Mango Fruit Fly"], "diseases": [], "has_image": false},
+        {"lat": -12.460205, "lon": 130.839415, "time": "10:25 AM", "pests": [], "diseases": ["Powdery Mildew", "Stem End Rot"], "has_image": true},
+        {"lat": -12.460156, "lon": 130.839354, "time": "10:30 AM", "pests": ["Mango Scale Insect"], "diseases": [], "has_image": false},
+        {"lat": -12.460180, "lon": 130.839265, "time": "10:35 AM", "pests": [], "diseases": ["Mango Malformation"], "has_image": true},
+        {"lat": -12.460222, "lon": 130.839399, "time": "10:40 AM", "pests": ["Mango Seed Weevil"], "diseases": ["Bacterial Black Spot"], "has_image": false},
+        {"lat": -12.460167, "lon": 130.839465, "time": "10:45 AM", "pests": ["Mango Leaf Hopper"], "diseases": [], "has_image": true},
+        {"lat": -12.460134, "lon": 130.839284, "time": "10:50 AM", "pests": [], "diseases": ["Anthracnose"], "has_image": false},
+        {"lat": -12.460198, "lon": 130.839334, "time": "10:55 AM", "pests": ["Mango Tip Borer", "Mango Fruit Fly"], "diseases": [], "has_image": true},
+        {"lat": -12.460237, "lon": 130.839439, "time": "11:00 AM", "pests": [], "diseases": ["Stem End Rot"], "has_image": true},
+        {"lat": -12.460175, "lon": 130.839526, "time": "11:05 AM", "pests": ["Mango Scale Insect", "Mango Seed Weevil"], "diseases": [], "has_image": false},
+        {"lat": -12.460146, "lon": 130.839384, "time": "11:10 AM", "pests": [], "diseases": ["Powdery Mildew"], "has_image": true},
+        {"lat": -12.460213, "lon": 130.839254, "time": "11:15 AM", "pests": ["Mango Leaf Hopper"], "diseases": ["Bacterial Black Spot"], "has_image": false},
+        {"lat": -12.460249, "lon": 130.839359, "time": "11:20 AM", "pests": ["Mango Tip Borer"], "diseases": [], "has_image": true},
+        {"lat": -12.460176, "lon": 130.839495, "time": "11:25 AM", "pests": [], "diseases": ["Mango Malformation", "Anthracnose"], "has_image": false},
+        {"lat": -12.460137, "lon": 130.839304, "time": "11:30 AM", "pests": ["Mango Fruit Fly", "Mango Scale Insect"], "diseases": [], "has_image": true},
+        {"lat": -12.460219, "lon": 130.839205, "time": "11:35 AM", "pests": [], "diseases": ["Stem End Rot"], "has_image": false},
+        {"lat": -12.460258, "lon": 130.839409, "time": "11:40 AM", "pests": ["Mango Seed Weevil"], "diseases": ["Powdery Mildew"], "has_image": true},
+        {"lat": -12.460163, "lon": 130.839536, "time": "11:45 AM", "pests": ["Mango Leaf Hopper", "Mango Tip Borer"], "diseases": [], "has_image": false},
+        {"lat": -12.460128, "lon": 130.839254, "time": "11:50 AM", "pests": [], "diseases": ["Bacterial Black Spot", "Mango Malformation"], "has_image": true}
+    ];
+    
+    // Find midpoint of observations for map center
+    let centerLat = 0;
+    let centerLon = 0;
+    testObservations.forEach(obs => {
+        centerLat += obs.lat;
+        centerLon += obs.lon;
+    });
+    centerLat /= testObservations.length;
+    centerLon /= testObservations.length;
+    
+    // Initialize map
+    const map = L.map('observationMap', {
+        center: [centerLat, centerLon],
+        zoom: 17,
+        maxBoundsViscosity: 1.0,
+        bounceAtZoomLimits: true,
+        zoomSnap: 0.5,
+        zoomDelta: 0.5
+    });
+    
+    // Add dark tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19,
+        noWrap: true
+    }).addTo(map);
+    
+    // Add farm boundary
+    const farmBoundaryLayer = L.geoJSON(farmBoundary, {
+        style: {
+            color: '#00ffff',       // Cyan border
+            weight: 3,              // Border thickness
+            opacity: 0.8,           // Border opacity
+            fillColor: '#00ffff',   // Cyan fill
+            fillOpacity: 0.1        // Very transparent fill
+        }
+    }).addTo(map);
+
+    // Add observation markers
+    const markers = L.layerGroup().addTo(map);
+    testObservations.forEach((obs, index) => {
+        // Create marker with custom icon
+        const markerHtml = `
+            <div class="observation-marker" style="position: relative;">
+                <div style="background-color: white; border-radius: 50%; width: 12px; height: 12px; border: 2px solid #333;"></div>
+                <span style="position: absolute; top: -8px; left: 16px; background-color: rgba(0,0,0,0.7); 
+                            color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px;">
+                    ${index + 1}
+                </span>
+            </div>
+        `;
+        
+        const icon = L.divIcon({
+            html: markerHtml,
+            className: 'observation-marker-container',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+        
+        // Create marker
+        const marker = L.marker([obs.lat, obs.lon], {
+            icon: icon,
+            title: `Observation #${index + 1}`
+        }).addTo(markers);
+        
+        // Create popup content
+        let popupContent = `
+            <div style="min-width: 200px;">
+                <h6>Observation #${index + 1}</h6>
+                <p><strong>Time:</strong> ${obs.time}</p>
+        `;
+        
+        if (obs.pests && obs.pests.length > 0) {
+            popupContent += `<p><strong>Pests:</strong> ${obs.pests.join(', ')}</p>`;
+        }
+        
+        if (obs.diseases && obs.diseases.length > 0) {
+            popupContent += `<p><strong>Diseases:</strong> ${obs.diseases.join(', ')}</p>`;
+        }
+        
+        if (obs.has_image) {
+            popupContent += `<p><i class="bi bi-camera"></i> Has image</p>`;
+        }
+        
+        popupContent += `</div>`;
+        
+        // Add popup to marker
+        marker.bindPopup(popupContent);
+    });
+    
+    // Prepare heatmap data
+    const heatData = [];
+    testObservations.forEach(obs => {
+        // Calculate intensity based on pest/disease count
+        const pestCount = obs.pests ? obs.pests.length : 0;
+        const diseaseCount = obs.diseases ? obs.diseases.length : 0;
+        
+        // Base intensity (0.5) + extra for each pest/disease (up to 1.0)
+        const intensity = 0.5 + Math.min(0.5, (pestCount + diseaseCount) * 0.1);
+        
+        // Add point with intensity
+        heatData.push([obs.lat, obs.lon, intensity]);
+        
+        // For visual effect, add additional points with lower intensity
+        if (pestCount + diseaseCount > 1) {
+            for (let j = 0; j < Math.min(5, pestCount + diseaseCount); j++) {
+                const spreadLat = obs.lat + (Math.random() * 0.00003 - 0.000015);
+                const spreadLon = obs.lon + (Math.random() * 0.00003 - 0.000015);
+                heatData.push([spreadLat, spreadLon, 0.3]);
+            }
+        }
+    });
+    
+    // Create heatmap layer
+    const heat = L.heatLayer(heatData, {
+        radius: 25,
+        blur: 20,
+        maxZoom: 17,
+        max: 1.0,
+        gradient: {
+            0.1: 'rgba(0,0,255,0.5)',  // Blue (low)
+            0.3: 'rgba(0,255,255,0.6)', // Cyan
+            0.5: 'rgba(0,255,0,0.7)',  // Green
+            0.7: 'rgba(255,255,0,0.8)', // Yellow 
+            0.9: 'rgba(255,0,0,0.9)'   // Red (high)
+        }
+    }).addTo(map);
+    
+    // Add pulsating effect for highest intensity point
+    if (heatData.length > 0) {
+        // Sort by intensity and get the highest
+        const sortedData = [...heatData].sort((a, b) => b[2] - a[2]);
+        const hotspot = sortedData[0];
+        
+        // Create pulsating circle marker
+        const pulseIcon = L.divIcon({
+            html: '<div class="pulse-marker"></div>',
+            className: 'pulse-icon',
+            iconSize: [20, 20]
+        });
+        
+        const pulseMarker = L.marker([hotspot[0], hotspot[1]], {
+            icon: pulseIcon,
+            title: 'Highest intensity point'
+        }).addTo(markers);
+        
+        // Add popup for the hotspot
+        pulseMarker.bindPopup('<div style="text-align:center;"><strong>Hotspot</strong><br>Highest concentration of pest/disease observations</div>');
+        
+        // Add pulsating effect with CSS
+        const style = document.createElement('style');
+        style.textContent = `
+            .pulse-marker {
+                border-radius: 50%;
+                height: 14px;
+                width: 14px;
+                background: rgba(255, 0, 0, 0.6);
+                position: absolute;
+                box-shadow: 0 0 0 rgba(255, 0, 0, 0.4);
+                animation: pulse 2s infinite;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+            }
+            
+            @keyframes pulse {
+                0% {
+                    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7);
+                }
+                70% {
+                    box-shadow: 0 0 0 15px rgba(255, 0, 0, 0);
+                }
+                100% {
+                    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Fit map to farm boundary
+    map.fitBounds(farmBoundaryLayer.getBounds().pad(0.2));
+    
+    // Set max bounds to restrict panning
+    map.setMaxBounds(farmBoundaryLayer.getBounds().pad(0.5));
+    
+    // Set min/max zoom levels
+    const currentZoom = map.getZoom();
+    map.setMinZoom(currentZoom - 2);
+    map.setMaxZoom(19);
+    
+    // Add layer control
+    const baseMaps = {};
+    const overlayMaps = {
+        "<i class='bi bi-thermometer-half text-danger'></i> Heatmap": heat,
+        "<i class='bi bi-geo-alt-fill text-info'></i> Observation Points": markers,
+        "<i class='bi bi-bounding-box text-primary'></i> Farm Boundary": farmBoundaryLayer
+    };
+    
+    // Add layer control with custom options
+    const layerControl = L.control.layers(baseMaps, overlayMaps, {
+        collapsed: false,
+        position: 'topright'
+    }).addTo(map);
+    
+    // Add a title to the layer control
+    const layerControlElement = layerControl.getContainer();
+    const layerControlTitle = document.createElement('div');
+    layerControlTitle.innerHTML = '<strong style="display: block; margin-bottom: 8px; font-size: 14px;">Display Options</strong>';
+    layerControlTitle.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+    layerControlTitle.style.paddingBottom = '5px';
+    layerControlTitle.style.marginBottom = '8px';
+    
+    // Insert the title at the beginning of the layer control
+    layerControlElement.insertBefore(
+        layerControlTitle, 
+        layerControlElement.firstChild
+    );
+    
+    // Add a "Reset View" button to re-center the map
+    const resetViewControl = L.control({position: 'topleft'});
+    resetViewControl.onAdd = function() {
+        const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+        div.innerHTML = '<a href="#" title="Reset map view to farm" style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; background:white; text-decoration:none; color:#333;"><i class="bi bi-house"></i></a>';
+        
+        div.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Reset to original view with slight animation
+            map.flyToBounds(farmBoundaryLayer.getBounds().pad(0.2), {
+                duration: 0.5,
+                easeLinearity: 0.5
+            });
+            return false;
+        };
+        
+        return div;
+    };
+    resetViewControl.addTo(map);
+    
+    // Add notification for when users hit map bounds
+    let boundsNotification = null;
+    let notificationTimeout = null;
+    
+    const showBoundsNotification = () => {
+        // Clear existing timeout and notification
+        if (notificationTimeout) clearTimeout(notificationTimeout);
+        if (boundsNotification) boundsNotification.remove();
+        
+        // Create and add notification
+        boundsNotification = L.control({position: 'bottomleft'});
+        boundsNotification.onAdd = function() {
+            const div = L.DomUtil.create('div', 'bounds-notification');
+            div.innerHTML = '<div style="background-color: rgba(0,0,0,0.7); color: white; padding: 8px 12px; border-radius: 4px; font-size: 13px;">' +
+                           '<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> View limited to farm area</div>';
+            return div;
+        };
+        boundsNotification.addTo(map);
+        
+        // Set timeout to remove notification
+        notificationTimeout = setTimeout(() => {
+            if (boundsNotification) {
+                boundsNotification.remove();
+                boundsNotification = null;
+            }
+        }, 2000);
+    };
+    
+    // Show notification on bounds events
+    map.on('moveend', function() {
+        const mapBounds = map.getBounds();
+        const maxBounds = farmBoundaryLayer.getBounds().pad(0.5);
+        if (!maxBounds.contains(mapBounds)) {
+            showBoundsNotification();
+        }
+    });
+    
+    // Also show notification on zoom limits
+    map.on('zoomend', function() {
+        if (map.getZoom() === map.getMinZoom() || map.getZoom() === map.getMaxZoom()) {
+            showBoundsNotification();
+        }
+    });
+    
+    console.log("Map initialization complete");
+});
+</script>
+{% endblock extra_js %}
