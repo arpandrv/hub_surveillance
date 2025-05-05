@@ -466,23 +466,38 @@ document.addEventListener('DOMContentLoaded', function() {
         let currentPests = newCounts ? newCounts.unique_pests : parseInt(uniquePestsCountSpan?.textContent || '0');
         let currentDiseases = newCounts ? newCounts.unique_diseases : parseInt(uniqueDiseasesCountSpan?.textContent || '0');
         
-        console.log(`Updating UI: Completed ${currentCompleted} / Target ${targetPlants}`);
+        console.log(`Updating UI with counts: Completed=${currentCompleted}, Target=${targetPlants}, Pests=${currentPests}, Diseases=${currentDiseases}`);
+        
+        // Also update the global variable
+        completedPlants = currentCompleted;
+        
         // Update progress bar text/width
         const progressBar = document.querySelector('.progress-bar');
         if (progressBar && targetPlants > 0) {
             const percentage = Math.min(100, Math.floor((currentCompleted / targetPlants) * 100)); // Cap at 100%
+            console.log(`Progress percentage: ${percentage}%`);
             progressBar.style.width = percentage + '%';
             progressBar.textContent = `${currentCompleted}/${targetPlants}`;
-            // Add Bootstrap classes for color based on completion?
+            
+            // Add Bootstrap classes for color based on completion
             progressBar.classList.remove('bg-success', 'bg-warning');
             if (percentage >= 100) {
                 progressBar.classList.add('bg-success');
             } else if (percentage > 50) {
                  progressBar.classList.add('bg-warning');
             }
+        } else {
+            console.warn("Could not update progress bar:", progressBar, targetPlants);
         }
-        // Update completed count display
-        if(completedObsCountSpan) completedObsCountSpan.textContent = currentCompleted;
+        
+        // Update count displays
+        if(completedObsCountSpan) {
+            completedObsCountSpan.textContent = currentCompleted;
+            console.log(`Updated completedObsCountSpan to: ${currentCompleted}`);
+        } else {
+            console.warn("completedObsCountSpan not found");
+        }
+        
         // Update unique pest/disease counts
         if(uniquePestsCountSpan) uniquePestsCountSpan.textContent = currentPests;
         if(uniqueDiseasesCountSpan) uniqueDiseasesCountSpan.textContent = currentDiseases;
@@ -937,8 +952,21 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // Add to list and update counts
                         addObservationToList(result.observation);
+                        
+                        // Get the counts from the response
                         if (result.counts) {
+                            console.log("Received counts from server:", result.counts);
+                            completedPlants = result.counts.completed; // Update the global counter
                             updateUI(result.counts);
+                        } else {
+                            // If server didn't send counts, calculate locally
+                            completedPlants = document.querySelectorAll('#observation-list > li').length;
+                            console.log("Calculating counts locally:", completedPlants);
+                            updateUI({
+                                completed: completedPlants,
+                                unique_pests: parseInt(uniquePestsCountSpan?.textContent || '0'),
+                                unique_diseases: parseInt(uniqueDiseasesCountSpan?.textContent || '0')
+                            });
                         }
                         
                         // Reset form and remove hidden file inputs
@@ -1019,7 +1047,18 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('Observation form not found');
     }
     
-    // Initialize UI components
+    // Initialize UI components with accurate counts
+    // First, get the real count from the observation list
+    const initialObservationCount = document.querySelectorAll('#observation-list > li').length;
+    if (initialObservationCount > 0) {
+        console.log(`Initial observation count from DOM: ${initialObservationCount}`);
+        // If DOM count is more accurate than the passed value, use it
+        if (initialObservationCount > completedPlants) {
+            console.log(`Updating completedPlants from ${completedPlants} to ${initialObservationCount} based on DOM count`);
+            completedPlants = initialObservationCount;
+        }
+    }
+    
     updateUI();
     highlightRecommendedItems();
 });

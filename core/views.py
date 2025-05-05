@@ -1030,14 +1030,21 @@ def active_survey_session_view(request, session_id):
     # Initialize the form
     form = ObservationForm() # We don't use initial data here, JS will populate from draft_data_json
 
+    # Calculate unique pest and disease counts
+    unique_pests_count = Pest.objects.filter(observations__in=observations).distinct().count()
+    unique_diseases_count = Disease.objects.filter(observations__in=observations).distinct().count()
+    
     context = {
         'session': session,
         'farm': farm,
         'observations': observations,
         'form': form,
         'observation_count': observation_count,
+        'completed_plants': observation_count,  # Add this for the progress counting
         'target_plants': target_plants,
         'progress_percent': progress_percent,
+        'unique_pests_count': unique_pests_count,  # Add counts for the template
+        'unique_diseases_count': unique_diseases_count,
         'recommended_pests_ids': [p.id for p in recommended_pests],
         'recommended_diseases_ids': [d.id for d in recommended_diseases],
         'recommended_pests': recommended_pests, # Pass object list for template display
