@@ -437,6 +437,24 @@ class Farm(models.Model):
         """
         latest = self.surveillance_records.order_by('-date_performed').first()
         return latest.date_performed if latest else None
+        
+    def days_since_last_surveillance(self):
+        """
+        Calculate the number of days since the last surveillance check.
+        
+        Returns:
+            int or None: Number of days since last check, or None if never checked
+        """
+        last_date = self.last_surveillance_date()
+        if not last_date:
+            return None
+            
+        # Ensure we're working with date objects
+        if isinstance(last_date, datetime):
+            last_date = last_date.date()
+            
+        today = timezone.now().date()
+        return (today - last_date).days
     
     def next_due_date(self):
         """

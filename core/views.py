@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from .season_utils import get_seasonal_stage_info
 from django.http import Http404, JsonResponse, HttpResponse
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
@@ -81,9 +82,16 @@ def signup_view(request):
 
 @login_required
 def home_view(request):
-    """Display the user's farms (My Farms page)."""
+    """Display the user's farms (My Farms page) with enhanced mobile-friendly UI."""
     farms = get_user_farms(request.user)
-    return render(request, 'core/home.html', {'farms': farms})
+    # Sort farms by surveillance status - Due farms first, then farms with recent checks
+    sorted_farms = sorted(farms, key=lambda farm: (
+        farm.days_since_last_surveillance() is None, # Farms never checked come first
+        -1 if farm.days_since_last_surveillance() is None else farm.days_since_last_surveillance(), # Then sort by days since last check (descending)
+        farm.name # Finally sort alphabetically
+    ))
+    
+    return render(request, 'core/home.html', {'farms': sorted_farms})
 
 
 @login_required
@@ -659,15 +667,16 @@ def dashboard_view(request):
     
     due_farms_count = len(due_farms)
     
-    # Get current season information
-    sample_farm = farms.first()
-    current_season = sample_farm.current_season() if sample_farm else 'Wet'
+    # Get current season information from the database
+    seasonal_info = get_seasonal_stage_info()
+    current_season = seasonal_info['stage_name'] if seasonal_info['stage_name'] else 'Unknown'
     
-    season_labels = {
-        'Wet': 'November-April',
-        'Dry': 'May-October',
-        'Flowering': 'During Dry Season'
-    }
+    # Get the month ranges for the current season
+    month_used = seasonal_info['month_used']
+    
+    # Create a label based on the seasonal stage data
+    month_names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    season_label = f"Current month: {month_names[month_used-1]}"
     
     context = {
         'grower': grower,
@@ -678,7 +687,8 @@ def dashboard_view(request):
         'due_farms': due_farms,
         'due_farms_count': due_farms_count,
         'current_season': current_season,
-        'season_label': season_labels.get(current_season, '')
+        'season_label': season_label,
+        'seasonal_info': seasonal_info  # Pass the full seasonal info to the template
     }
     
     return render(request, 'core/dashboard.html', context)
