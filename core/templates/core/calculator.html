@@ -3,6 +3,64 @@
 {% block title %}Surveillance Calculator{% endblock %}
 {% block heading %}Surveillance Calculator{% endblock %}
 
+{% block head_extra %}
+<style>
+    /* Seasonal Timeline Styling */
+    .seasonal-timeline {
+        margin: 1rem 0;
+    }
+    .timeline-header {
+        font-size: 0.7rem;
+        color: #666;
+    }
+    .timeline-bars {
+        display: flex;
+        height: 12px;
+        border-radius: 6px;
+        overflow: hidden;
+        background-color: #f0f0f0;
+    }
+    .timeline-month {
+        flex: 1;
+        height: 100%;
+        position: relative;
+        transition: all 0.2s ease;
+    }
+    .timeline-month:not(.empty) {
+        background-color: #17a2b8;
+        opacity: 0.6;
+    }
+    .timeline-month.current {
+        background-color: #17a2b8;
+        opacity: 1;
+        box-shadow: 0 0 0 2px #fff inset;
+    }
+    .timeline-month:hover {
+        transform: scaleY(1.5);
+        z-index: 10;
+    }
+    .timeline-month.empty {
+        background-color: #f0f0f0;
+    }
+    
+    /* Collapse Section Styling */
+    .card-header[data-bs-toggle="collapse"] {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+    .card-header[data-bs-toggle="collapse"]:hover {
+        background-color: rgba(0,0,0,0.03);
+    }
+    .collapse-icon {
+        transition: transform 0.3s ease;
+    }
+    .collapse.show + .card-header .collapse-icon,
+    [aria-expanded="true"] .collapse-icon {
+        transform: rotate(180deg);
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     {# Left Side: Form #}
@@ -12,34 +70,153 @@
                 <h5 class="mb-0">Calculate Sample Size</h5>
             </div>
             <div class="card-body">
-                {# Display auto-detected stage and prevalence #}
-                {% if current_stage and current_prevalence_p is not None %}
-                <div class="alert alert-info small mb-3">
-                    <i class="bi bi-info-circle-fill me-1"></i>
-                    The current farming stage is automatically detected as <strong>{{ current_stage }}</strong>, 
-                    with an estimated prevalence of <strong>{{ current_prevalence_p }}%</strong> used for this calculation.
+                {# Seasonal Context Panel #}
+                <div class="card border-info mb-4">
+                    <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center"
+                         role="button" data-bs-toggle="collapse" data-bs-target="#seasonalContextCollapse"
+                         aria-expanded="true" aria-controls="seasonalContextCollapse">
+                        <h6 class="mb-0 text-info"><i class="bi bi-calendar-range me-2"></i>Seasonal Context</h6>
+                        <i class="bi bi-chevron-down collapse-icon text-info"></i>
+                    </div>
+                    <div class="collapse show" id="seasonalContextCollapse">
+                        <div class="card-body">
+                            {% if current_stage and current_prevalence_p is not None %}
+                            <div class="d-flex align-items-center mb-3">
+                                <div class="me-3">
+                                    <span class="fs-4 text-info"><i class="bi bi-calendar-check"></i></span>
+                                </div>
+                                <div>
+                                    <h6 class="mb-0">Current Stage: <strong>{{ current_stage }}</strong></h6>
+                                    <p class="mb-0 small text-muted">Month: {{ month_used_for_calc }} | Estimated prevalence: {{ current_prevalence_p }}%</p>
+                                </div>
+                            </div>
+                            
+                            {# Seasonal Timeline #}
+                            <div class="seasonal-timeline mb-3">
+                                <div class="timeline-header d-flex justify-content-between mb-1">
+                                    <span class="small">Jan</span>
+                                    <span class="small">Feb</span>
+                                    <span class="small">Mar</span>
+                                    <span class="small">Apr</span>
+                                    <span class="small">May</span>
+                                    <span class="small">Jun</span>
+                                    <span class="small">Jul</span>
+                                    <span class="small">Aug</span>
+                                    <span class="small">Sep</span>
+                                    <span class="small">Oct</span>
+                                    <span class="small">Nov</span>
+                                    <span class="small">Dec</span>
+                                </div>
+                                <div class="timeline-bars">
+                                    {% for month_num in "123456789101112" %}
+                                        {% if forloop.counter == month_used_for_calc %}
+                                            <div class="timeline-month current" 
+                                                data-bs-toggle="tooltip" 
+                                                data-bs-placement="top" 
+                                                title="{{ current_stage }} (Current Month)">
+                                            </div>
+                                        {% else %}
+                                            <div class="timeline-month{% if forloop.counter != month_used_for_calc %} empty{% endif %}">
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            
+                            {# Pest and Disease Information #}
+                            <div class="row g-3 mt-1">
+                                {% if current_pests %}
+                                <div class="col-md-6">
+                                    <div class="border rounded p-2 h-100">
+                                        <h6 class="text-danger mb-2"><i class="bi bi-bug me-1"></i>Active Pests</h6>
+                                        <ul class="list-unstyled mb-0 small">
+                                            {% for pest in current_pests %}
+                                            <li class="mb-1">
+                                                <strong>{{ pest.name }}</strong>
+                                                {% if pest.description %}
+                                                <button class="btn btn-sm btn-link text-danger p-0 ms-1" 
+                                                        data-bs-toggle="tooltip" 
+                                                        data-bs-placement="top" 
+                                                        title="{{ pest.description }}">
+                                                    <i class="bi bi-info-circle-fill"></i>
+                                                </button>
+                                                {% endif %}
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                                {% endif %}
+                                
+                                {% if current_diseases %}
+                                <div class="col-md-6">
+                                    <div class="border rounded p-2 h-100">
+                                        <h6 class="text-warning mb-2"><i class="bi bi-virus me-1"></i>Active Diseases</h6>
+                                        <ul class="list-unstyled mb-0 small">
+                                            {% for disease in current_diseases %}
+                                            <li class="mb-1">
+                                                <strong>{{ disease.name }}</strong>
+                                                {% if disease.description %}
+                                                <button class="btn btn-sm btn-link text-warning p-0 ms-1" 
+                                                        data-bs-toggle="tooltip" 
+                                                        data-bs-placement="top" 
+                                                        title="{{ disease.description }}">
+                                                    <i class="bi bi-info-circle-fill"></i>
+                                                </button>
+                                                {% endif %}
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-warning small mb-0">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                No seasonal information available. Please ensure seasonal stages are configured in the admin panel.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
-                {% endif %}
                 
                 <form method="get" action="{% url 'core:calculator' %}" novalidate>
                     {# Removed csrf_token as it's a GET request #}
 
                     {# Farm Selection #}
                     <div class="mb-3">
-                        <label for="{{ form.farm.id_for_label }}" class="form-label fw-bold">{{ form.farm.label }}:</label>
+                        <label for="{{ form.farm.id_for_label }}" class="form-label fw-bold">
+                            {{ form.farm.label }}
+                            <i class="bi bi-info-circle-fill text-info ms-1" 
+                               data-bs-toggle="tooltip" 
+                               data-bs-placement="top" 
+                               title="The farm for which you're calculating the surveillance sample size. Total plant population from this farm will be used in the calculation."></i>
+                        </label>
                         {{ form.farm }}
                         {% if form.farm.errors %}<div class="text-danger small mt-1">{{ form.farm.errors|striptags }}</div>{% endif %}
                     </div>
 
                     {# Confidence Level #}
                     <div class="mb-3">
-                        <label for="{{ form.confidence_level.id_for_label }}" class="form-label fw-bold">{{ form.confidence_level.label }}:</label>
+                        <label for="{{ form.confidence_level.id_for_label }}" class="form-label fw-bold">
+                            {{ form.confidence_level.label }}
+                            <i class="bi bi-info-circle-fill text-info ms-1" 
+                               data-bs-toggle="tooltip" 
+                               data-bs-placement="top" 
+                               title="How confident you want to be that your surveillance will detect pests/diseases if present above the detection threshold. Higher confidence means larger sample sizes but more reliable results."></i>
+                        </label>
                         {{ form.confidence_level }}
                         {% if form.confidence_level.errors %}<div class="text-danger small mt-1">{{ form.confidence_level.errors|striptags }}</div>{% endif %}
+                        <div class="mt-2 small text-secondary">
+                            <i class="bi bi-shield-check me-1"></i> <strong>Impact on reliability:</strong> 
+                            <ul class="mt-1 mb-0 ps-3">
+                                <li><strong>90%</strong>: Basic level of confidence, suitable for routine monitoring</li>
+                                <li><strong>95%</strong>: Standard level, recommended for most surveillance activities</li>
+                                <li><strong>99%</strong>: High confidence, recommended for high-value crops or when disease risk is elevated</li>
+                            </ul>
+                        </div>
                     </div>
-
-                    {# REMOVED Season Selection #}
-                    {# The season field was previously here and has been removed. #}
 
                     <button type="submit" class="btn btn-primary w-100">
                         <i class="bi bi-calculator me-1"></i> Calculate
@@ -140,8 +317,110 @@
                 {% else %}
                     <p class="text-muted text-center pt-3">Select a farm and confidence level to calculate the required sample size.</p>
                 {% endif %}
+                
+                {# Methodology Explanation #}
+                <div class="card border-secondary mt-3">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center"
+                         role="button" data-bs-toggle="collapse" data-bs-target="#methodologyCollapse"
+                         aria-expanded="false" aria-controls="methodologyCollapse">
+                        <h6 class="mb-0"><i class="bi bi-journal-text me-2"></i>Surveillance Methodology</h6>
+                        <i class="bi bi-chevron-down collapse-icon text-secondary"></i>
+                    </div>
+                    <div class="collapse" id="methodologyCollapse">
+                        <div class="card-body">
+                            <p class="small text-muted mb-2">This calculator uses statistical sampling methods designed specifically for early pest and disease detection in mango orchards.</p>
+                            
+                            <h6 class="mt-3 mb-2">How It Works</h6>
+                            <ul class="small text-muted">
+                                <li><strong>Population Size:</strong> Total number of plants in your farm</li>
+                                <li><strong>Prevalence Rate:</strong> Expected percentage of infected plants (varies by season)</li>
+                                <li><strong>Confidence Level:</strong> How certain you want to be of detecting issues if present</li>
+                                <li><strong>Sample Size:</strong> Calculated using hypergeometric distribution for finite populations</li>
+                            </ul>
+                            
+                            <div class="alert alert-info small mt-3 mb-0">
+                                <i class="bi bi-info-circle-fill me-1"></i>
+                                The calculations adapt to different seasons, as pest and disease prevalence varies throughout the year. The system automatically detects the current season to provide optimal sampling recommendations.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                {# Recommendation Explanations #}
+                {% if form_submitted and calculation_results and not calculation_results.error %}
+                <div class="card border-success mt-3">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center"
+                         role="button" data-bs-toggle="collapse" data-bs-target="#resultExplanationCollapse"
+                         aria-expanded="false" aria-controls="resultExplanationCollapse">
+                        <h6 class="mb-0"><i class="bi bi-graph-up me-2"></i>Understanding Your Results</h6>
+                        <i class="bi bi-chevron-down collapse-icon text-secondary"></i>
+                    </div>
+                    <div class="collapse" id="resultExplanationCollapse">
+                        <div class="card-body">
+                            <p class="small text-muted mb-3">Your recommended sample size of <strong>{{ calculation_results.required_plants_to_survey }}</strong> plants is calculated based on:</p>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="border rounded p-3 mb-3">
+                                        <h6 class="mb-2">Detection Capability</h6>
+                                        <p class="small text-muted mb-2">With a {{ calculation_results.confidence_level_percent }}% confidence level:</p>
+                                        <ul class="small text-muted mb-0">
+                                            <li>If {{ current_prevalence_p }}% or more of your plants are affected, you'll likely detect it</li>
+                                            <li>Lower prevalence levels might not be detected with this sample size</li>
+                                            <li>Higher confidence levels would require larger samples</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="border rounded p-3 mb-3">
+                                        <h6 class="mb-2">Sample Distribution</h6>
+                                        <p class="small text-muted mb-0">For optimal detection:</p>
+                                        <ul class="small text-muted mb-0">
+                                            <li>Inspect approximately 1 in every {{ calculation_results.survey_frequency }} plants</li>
+                                            <li>Spread samples evenly throughout your orchard</li>
+                                            <li>Focus on plants from different areas to maximize coverage</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-success small mt-2 mb-0">
+                                <i class="bi bi-lightbulb-fill me-1"></i>
+                                <strong>Pro Tip:</strong> For the most effective surveillance, concentrate on examining the plant parts most likely to show symptoms during the current {{ current_stage }} stage.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Initialize tooltips and collapse functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach(function(tooltipTriggerEl) {
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+        
+        // Set up event listeners for collapse state changes
+        document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function(element) {
+            element.addEventListener('click', function() {
+                // Toggle aria-expanded attribute (this handles the arrow rotation via CSS)
+                const expanded = this.getAttribute('aria-expanded') === 'true';
+                this.setAttribute('aria-expanded', !expanded);
+            });
+        });
+        
+        // Add cursor: pointer to make entire headers look clickable
+        document.querySelectorAll('.card-header[data-bs-toggle="collapse"]').forEach(function(header) {
+            header.style.cursor = 'pointer';
+        });
+    });
+</script>
+{% endblock %}

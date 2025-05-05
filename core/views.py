@@ -462,6 +462,31 @@ def calculator_view(request):
     else:
         form = CalculatorForm(grower) # Initialize empty if no initial farm ID
 
+    # Get all seasonal stages for our timeline display
+    all_seasonal_stages = SeasonalStage.objects.all().order_by('id')
+    
+    # Create a mapping of month to stage for the timeline
+    month_to_stage_map = {}
+    for stage in all_seasonal_stages:
+        months_list = [int(m.strip()) for m in stage.months.split(',') if m.strip().isdigit()]
+        for month in months_list:
+            month_to_stage_map[month] = {
+                'name': stage.name,
+                'prevalence_p': float(stage.prevalence_p * 100),
+                'is_current': month == month_used_for_calc
+            }
+    
+    # Get active pests and diseases for current stage if it exists
+    current_pests = []
+    current_diseases = []
+    if current_stage:
+        try:
+            current_stage_obj = SeasonalStage.objects.get(name=current_stage)
+            current_pests = list(current_stage_obj.active_pests.all().values('name', 'description'))
+            current_diseases = list(current_stage_obj.active_diseases.all().values('name', 'description'))
+        except SeasonalStage.DoesNotExist:
+            pass
+    
     context = {
         'form': form,
         'selected_farm': selected_farm_instance,
@@ -470,7 +495,11 @@ def calculator_view(request):
         'current_stage': current_stage, # Pass stage name (or None)
         # Pass prevalence as percentage, handle None
         'current_prevalence_p': float(current_prevalence_p * 100) if current_prevalence_p is not None else None, 
-        'month_used_for_calc': month_used_for_calc # Pass month used
+        'month_used_for_calc': month_used_for_calc, # Pass month used
+        'all_stages': all_seasonal_stages,
+        'month_to_stage_map': month_to_stage_map,
+        'current_pests': current_pests,
+        'current_diseases': current_diseases
     }
     
     return render(request, 'core/calculator.html', context)
