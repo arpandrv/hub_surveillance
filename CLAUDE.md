@@ -11,6 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Create superuser: `python manage.py createsuperuser`
 - Shell: `python manage.py shell`
 - Run specific command: `python manage.py delete_duplicate_stages`
+- Lint: `flake8`
+- Type check: `mypy .`
+- Check imports: `isort --check .`
 
 ## Code Style Guidelines
 - Follow PEP 8 for Python code
@@ -30,3 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - For image handling, use the Pillow library with proper file path handling
 - Models should handle edge cases (e.g., null values) gracefully
 - Use Django's timezone-aware datetime functionality consistently
+- For calculations, use Decimal type for precision in statistical formulas
+- Follow services-oriented architecture with separate service modules
+- Use Django forms for input validation and sanitization
+- Follow the existing pattern for error handling and logging

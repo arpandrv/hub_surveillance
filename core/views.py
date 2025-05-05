@@ -946,69 +946,84 @@ def start_survey_session_view(request, farm_id):
 def active_survey_session_view(request, session_id):
     """
     Displays the main interface for an active survey session.
-    Handles recording of individual observations (via AJAX/future enhancement).
-    Redirects desktop users to a QR code page.
-    Loads draft observation data if available.
-    Passes recommended pests/diseases to template.
+    
+    Features:
+    - Handles recording of individual observations via AJAX
+    - Redirects desktop users to a QR code page for mobile use
+    - Loads draft observation data if available
+    - Provides seasonally-appropriate pest/disease recommendations
+    
+    Args:
+        request: HTTP request object
+        session_id: UUID of the survey session
+        
+    Returns:
+        Rendered template response with session data and form
     """
+    # Get session and verify ownership
     session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
     farm = session.farm
 
-    # --- Restored Desktop User Redirection Block --- #
+    # Mobile device detection
     user_agent = request.META.get('HTTP_USER_AGENT', '').lower()
-    is_mobile = 'mobile' in user_agent or 'android' in user_agent or 'iphone' in user_agent
-    # --- ADDED Check for force_desktop parameter --- #
-    force_desktop_param = request.GET.get('force_desktop', 'false').lower()
-    force_desktop = force_desktop_param == 'true'
+    mobile_indicators = ['mobile', 'android', 'iphone', 'ipad', 'tablet']
+    is_mobile = any(indicator in user_agent for indicator in mobile_indicators)
+    force_desktop = request.GET.get('force_desktop', 'false').lower() == 'true'
 
-    # --- MODIFIED Condition to include force_desktop --- #
+    # Redirect desktop users to QR code page unless override is set
     if not is_mobile and not force_desktop:
-        # Generate QR code for the CURRENT active session URL
-        session_url = request.build_absolute_uri(request.path) # Get current page URL
+        # Generate QR code for the session URL
+        session_url = request.build_absolute_uri(request.path)
         qr_image_base64 = None
+        
+        # Generate QR code with error handling
         try:
             qr_img = qrcode.make(session_url)
             buffer = io.BytesIO()
             qr_img.save(buffer, format='PNG')
             qr_image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            print(f"Generated QR code for session URL: {session_url}") # Debug
         except Exception as e:
-            print(f"Error generating QR code for session {session_id}: {e}")
-            messages.error(request, "Could not generate QR code for mobile access.")
-            # Optionally handle error differently, maybe show link without QR?
+            import logging
+            logging.error(f"QR code generation failed: {e}")
+            messages.error(request, "Could not generate QR code for mobile access. Please use the direct link instead.")
 
-        # Render the desktop redirect template
+        # Render desktop redirect template with QR code
         return render(request, 'core/desktop_redirect_qr.html', {
             'farm_name': farm.name,
-            'session_url': session_url, # Pass the session URL
-            'qr_image_base64': qr_image_base64, # Pass the generated QR code image data
-            'session_id': session_id, # ADDED: Pass session ID
+            'session_url': session_url,
+            'qr_image_base64': qr_image_base64,
+            'session_id': session_id,
             'message': "This survey session requires GPS and should be run on a mobile device. Please scan the QR code or use the link on your mobile."
         })
 
-    # --- Get Seasonal Info for Recommendations --- #
-    # Use the current month by default for recommendations within the active session
+    # Get seasonal recommendations
     stage_info = get_seasonal_stage_info()
     
-    # Get pest and disease names from stage_info
-    pest_names = stage_info.get('pest_names', []) 
+    # Retrieve recommended pests, diseases and plant parts for this season
+    pest_names = stage_info.get('pest_names', [])
     disease_names = stage_info.get('disease_names', [])
     part_names = stage_info.get('part_names', [])
+    current_stage_name = stage_info.get('stage_name', 'Unknown')
     
-    # Fetch the actual model objects
+    # Fetch all required objects in batch queries
     recommended_pests = Pest.objects.filter(name__in=pest_names)
     recommended_diseases = Disease.objects.filter(name__in=disease_names)
     recommended_parts = PlantPart.objects.filter(name__in=part_names)
-    
-    current_stage_name = stage_info.get('stage_name', 'Unknown')
 
-    # --- Load Existing Observations --- #
-    observations = Observation.objects.filter(session=session, status='completed').order_by('-observation_time')
-    # --- Load Latest Draft Observation --- #
-    latest_draft = Observation.objects.filter(session=session, status='draft').order_by('-observation_time').first()
-    draft_data_json = '{}' # Default to empty JSON object
+    # Load completed observations and draft data
+    observations = Observation.objects.filter(
+        session=session, 
+        status='completed'
+    ).select_related().order_by('-observation_time')
+    
+    latest_draft = Observation.objects.filter(
+        session=session, 
+        status='draft'
+    ).order_by('-observation_time').first()
+    
+    # Prepare draft data for frontend if it exists
+    draft_data_json = '{}'
     if latest_draft:
-        # Serialize draft data to pass to the template/JS
         draft_data = {
             'id': latest_draft.id,
             'latitude': str(latest_draft.latitude) if latest_draft.latitude else None,
@@ -1018,57 +1033,72 @@ def active_survey_session_view(request, session_id):
             'diseases_observed': list(latest_draft.diseases_observed.values_list('id', flat=True)),
             'notes': latest_draft.notes or '',
             'plant_sequence_number': latest_draft.plant_sequence_number or '',
-            # Note: We don't load images for the draft in the form, only display previously saved ones.
         }
         draft_data_json = json.dumps(draft_data)
 
+    # Calculate progress statistics
     observation_count = observations.count()
-    # Get target plants from the session itself
-    target_plants = session.target_plants_surveyed
-    progress_percent = int((observation_count / target_plants * 100)) if target_plants else 0
+    target_plants = session.target_plants_surveyed or 0
+    
+    # Handle division by zero safely
+    try:
+        progress_percent = int((observation_count / target_plants) * 100) if target_plants > 0 else 0
+        # Ensure percentage is within valid range
+        progress_percent = min(max(progress_percent, 0), 100)
+    except (ZeroDivisionError, TypeError):
+        progress_percent = 0
 
-    # Initialize the form
-    form = ObservationForm() # We don't use initial data here, JS will populate from draft_data_json
-
-    # Calculate unique pest and disease counts
+    # Calculate unique pest and disease counts for this session
     unique_pests_count = Pest.objects.filter(observations__in=observations).distinct().count()
     unique_diseases_count = Disease.objects.filter(observations__in=observations).distinct().count()
     
+    # Prepare view context
     context = {
         'session': session,
         'farm': farm,
         'observations': observations,
-        'form': form,
+        'form': ObservationForm(),  # Empty form - will be populated by JavaScript
         'observation_count': observation_count,
-        'completed_plants': observation_count,  # Add this for the progress counting
+        'completed_plants': observation_count,
         'target_plants': target_plants,
         'progress_percent': progress_percent,
-        'unique_pests_count': unique_pests_count,  # Add counts for the template
+        'unique_pests_count': unique_pests_count,
         'unique_diseases_count': unique_diseases_count,
         'recommended_pests_ids': [p.id for p in recommended_pests],
         'recommended_diseases_ids': [d.id for d in recommended_diseases],
-        'recommended_pests': recommended_pests, # Pass object list for template display
-        'recommended_diseases': recommended_diseases, # Pass object list for template display
-        'recommended_parts': recommended_parts, # Pass full objects if needed by template
+        'recommended_pests': recommended_pests,
+        'recommended_diseases': recommended_diseases,
+        'recommended_parts': recommended_parts,
         'current_stage_name': current_stage_name,
-        'latest_draft_json': draft_data_json, # Pass draft data as JSON
+        'latest_draft_json': draft_data_json,
     }
+    
     return render(request, 'core/active_survey_session.html', context)
 
 
-@csrf_exempt # Use proper auth later
+@csrf_exempt
 @require_POST
 @login_required
 def auto_save_observation_api(request):
     """
     API endpoint to handle AJAX submission for auto-saving draft observations.
-    Finds or creates a draft observation and updates its fields.
-    Does NOT finalize the observation (status remains 'draft').
+    
+    This endpoint finds or creates a draft observation and updates its fields.
+    It does NOT finalize the observation (status remains 'draft').
+    
+    Args:
+        request: HTTP request with observation data in POST params
+        
+    Returns:
+        JsonResponse with success/error status and observation info
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
-        # Handle FormData instead of JSON
+        # Extract data from request
         session_id = request.POST.get('session_id')
-        draft_id = request.POST.get('draft_id') # ID of existing draft, if known
+        draft_id = request.POST.get('draft_id') 
         latitude = request.POST.get('latitude')
         longitude = request.POST.get('longitude')
         gps_accuracy = request.POST.get('gps_accuracy')
@@ -1077,14 +1107,27 @@ def auto_save_observation_api(request):
         notes = request.POST.get('notes', '')
         plant_seq_str = request.POST.get('plant_sequence_number', '')
 
-        print(f"Auto-save received: session_id={session_id}, draft_id={draft_id}, plant_seq={plant_seq_str}")
-        print(f"Auto-save received pests: {pest_ids}")
-        print(f"Auto-save received diseases: {disease_ids}")
-
+        # Validate required fields
         if not session_id:
-            return JsonResponse({'status': 'error', 'message': 'Session ID is required.'}, status=400)
+            return JsonResponse({
+                'status': 'error', 
+                'message': 'Session ID is required.'
+            }, status=400)
 
-        session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
+        # Get session and verify ownership
+        try:
+            session = SurveySession.objects.get(session_id=session_id, surveyor=request.user)
+            if not session.is_active():
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'This survey session is no longer active.'
+                }, status=400)
+        except SurveySession.DoesNotExist:
+            logger.warning(f"User {request.user.username} attempted to access non-existent session {session_id}")
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Survey session not found.'
+            }, status=404)
 
         # Convert plant sequence number safely
         plant_sequence_number = None
@@ -1092,267 +1135,320 @@ def auto_save_observation_api(request):
             try:
                 plant_sequence_number = int(plant_seq_str)
             except (ValueError, TypeError):
-                pass # Ignore invalid input for drafts
+                logger.debug(f"Invalid plant sequence number provided: {plant_seq_str}")
+                # Ignore invalid input for drafts
 
         # Find existing draft or create a new one
         observation = None
         if draft_id:
             try:
-                # Try to fetch the existing draft
-                observation = Observation.objects.get(id=draft_id, session=session, status='draft')
-                print(f"Updating existing draft ID: {draft_id}")
+                observation = Observation.objects.drafts().get(id=draft_id, session=session)
+                logger.debug(f"Found existing draft observation {draft_id} for session {session_id}")
             except Observation.DoesNotExist:
-                print(f"Draft ID {draft_id} not found, creating new draft")
-                pass # If ID is invalid/mismatched, we'll create a new one
+                logger.info(
+                    f"Draft observation {draft_id} not found for session {session_id}, will create new"
+                )
+                # If ID is invalid/mismatched, we'll create a new one
 
+        # Create new observation if no valid draft found
         if not observation:
             observation = Observation(session=session, status='draft')
-            print(f"Created new draft observation")
+            logger.debug(f"Creating new draft observation for session {session_id}")
 
         # Update fields
-        observation.latitude = Decimal(latitude) if latitude else None
-        observation.longitude = Decimal(longitude) if longitude else None
-        observation.gps_accuracy = Decimal(gps_accuracy) if gps_accuracy else None
-        observation.notes = notes
-        observation.plant_sequence_number = plant_sequence_number # Can be None for drafts
-        observation.observation_time = timezone.now() # Update timestamp on each save
+        try:
+            observation.latitude = Decimal(latitude) if latitude else None
+            observation.longitude = Decimal(longitude) if longitude else None
+            observation.gps_accuracy = Decimal(gps_accuracy) if gps_accuracy else None
+            observation.notes = notes
+            observation.plant_sequence_number = plant_sequence_number
+            observation.observation_time = timezone.now()  # Update timestamp on each save
 
-        observation.save() # Save observation to get ID first
+            # Save to generate ID if new
+            observation.save()
 
-        # Update M2M fields
-        if pest_ids:
-            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
-        else:
-            observation.pests_observed.clear()
+            # Update many-to-many relationships
+            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids) if pest_ids else [])
+            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids) if disease_ids else [])
+            
+            # Update session status if needed
+            if session.status == 'not_started':
+                session.status = 'in_progress'
+                session.save(update_fields=['status'])
 
-        if disease_ids:
-            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
-        else:
-            observation.diseases_observed.clear()
+            return JsonResponse({
+                'status': 'success', 
+                'message': 'Draft saved successfully.', 
+                'draft_id': observation.id,
+                'has_coordinates': observation.has_coordinates(),
+                'has_pests': observation.has_pests(),
+                'has_diseases': observation.has_diseases()
+            })
+        except Exception as field_error:
+            logger.error(f"Error saving observation fields: {field_error}", exc_info=True)
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Error saving observation data.'
+            }, status=500)
 
-        # Note: Images are NOT handled in auto-save to avoid partial uploads.
-        # They are only processed during the final save (create_observation_api).
-
-        print(f"Draft saved with ID: {observation.id}")
-        return JsonResponse({'status': 'success', 'message': 'Draft saved.', 'draft_id': observation.id})
-
-    except SurveySession.DoesNotExist:
-        return JsonResponse({'status': 'error', 'message': 'Survey session not found.'}, status=404)
     except Exception as e:
-        # Log the exception for debugging
-        print(f"Error in auto_save_observation_api: {e}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({'status': 'error', 'message': f'An unexpected error occurred: {e}'}, status=500)
+        # Log the exception for debugging but don't expose details to client
+        logger.error(f"Error in auto_save_observation_api: {e}", exc_info=True)
+        return JsonResponse({
+            'status': 'error', 
+            'message': 'An unexpected error occurred.'
+        }, status=500)
 
 
-@csrf_exempt # TODO: Replace with proper token/session auth for AJAX
+@csrf_exempt
 @require_POST
 @login_required
 def create_observation_api(request):
     """
-    API endpoint to handle AJAX submission of a new observation OR finalize a draft.
-    Expects POST data including session_id, lat, lon, accuracy, pests, diseases, notes, images.
-    Also expects 'draft_id' if finalizing a draft.
-    Sets status to 'completed'.
-    Handles multiple image uploads.
+    API endpoint to handle AJAX submission of a new observation or finalize a draft.
+    
+    This endpoint creates a completed observation or finalizes an existing draft.
+    It also handles image uploads and automatically updates session status as needed.
+    
+    Features:
+    - Sets observation status to 'completed'
+    - Handles multiple image uploads
+    - Auto-assigns plant sequence numbers if not provided
+    - Updates session status from 'not_started' to 'in_progress' if needed
+    
+    Args:
+        request: HTTP request with observation data in POST params
+        
+    Returns:
+        JsonResponse with success/error status and observation info
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
+        # Extract data from request
         session_id = request.POST.get('session_id')
-        draft_id = request.POST.get('draft_id') # Get draft ID if finalizing
-        
-        print(f"Create observation: session_id={session_id}, draft_id={draft_id}")
-        print(f"POST data: {request.POST}")
-        print(f"Files: {request.FILES}")
-        
+        draft_id = request.POST.get('draft_id')
+
+        # Validate required fields
         if not session_id:
-            return JsonResponse({'status': 'error', 'message': 'Session ID is required.'}, status=400)
-            
-        session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
-        
-        # Extract data directly from POST without using ObservationForm for validation
+            return JsonResponse({
+                'status': 'error', 
+                'message': 'Session ID is required.'
+            }, status=400)
+
+        # Get session and verify ownership
+        try:
+            session = SurveySession.objects.get(session_id=session_id, surveyor=request.user)
+            if not session.is_active():
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'This survey session is no longer active.'
+                }, status=400)
+        except SurveySession.DoesNotExist:
+            logger.warning(f"User {request.user.username} attempted to access non-existent session {session_id}")
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Survey session not found.'
+            }, status=404)
+
+        # Extract observation data
         pest_ids = request.POST.getlist('pests_observed')
         disease_ids = request.POST.getlist('diseases_observed')
         notes = request.POST.get('notes', '')
         plant_seq_str = request.POST.get('plant_sequence_number', '')
-        
-        # Convert plant sequence number safely
+        latitude = request.POST.get('latitude')
+        longitude = request.POST.get('longitude')
+        gps_accuracy = request.POST.get('gps_accuracy')
+
+        # Process plant sequence number
         plant_sequence_number = None
         if plant_seq_str:
             try:
                 plant_sequence_number = int(plant_seq_str)
-                print(f"Using provided plant sequence number: {plant_sequence_number}")
             except (ValueError, TypeError):
-                print(f"Invalid plant sequence number: {plant_seq_str}, will calculate automatically")
-                # Will calculate automatically below
-        
-        # If plant_sequence_number is not provided or invalid, calculate it
+                logger.debug(f"Invalid plant sequence number provided: {plant_seq_str}")
+
+        # Auto-assign sequence number if not provided
         if not plant_sequence_number:
-            # Get the highest plant_sequence_number for this session
-            max_sequence = Observation.objects.filter(session=session).aggregate(Max('plant_sequence_number'))['plant_sequence_number__max'] or 0
+            # Use the custom manager to get the highest sequence number
+            latest_observations = Observation.objects.filter(session=session).order_by('-plant_sequence_number')
+            max_sequence = latest_observations[0].plant_sequence_number if latest_observations.exists() else 0
             plant_sequence_number = max_sequence + 1
-            print(f"Calculated plant sequence number: {plant_sequence_number}")
-        
-        # Find existing draft or create a new observation
-        observation = None
-        if draft_id:
-            try:
-                observation = Observation.objects.get(id=draft_id, session=session, status='draft')
-                print(f"Finalizing draft observation ID: {draft_id}")
-            except Observation.DoesNotExist:
-                print(f"Draft ID {draft_id} not found or not a draft, creating new observation")
-        
-        if not observation:
-            print("Creating new observation")
-            observation = Observation(
-                session=session,
-                plant_sequence_number=plant_sequence_number,
-                notes=notes
-            )
-        else:
-            # Update draft fields
+            logger.debug(f"Auto-assigned plant sequence number {plant_sequence_number} for session {session_id}")
+
+        # Find draft observation or create new one
+        try:
+            if draft_id:
+                observation = Observation.objects.drafts().get(id=draft_id, session=session)
+                logger.debug(f"Found draft observation {draft_id} to finalize")
+            else:
+                observation = Observation(session=session)
+                logger.debug(f"Creating new observation for session {session_id}")
+                
+            # Update observation fields
+            observation.latitude = Decimal(latitude) if latitude else None
+            observation.longitude = Decimal(longitude) if longitude else None
+            observation.gps_accuracy = Decimal(gps_accuracy) if gps_accuracy else None
             observation.notes = notes
             observation.plant_sequence_number = plant_sequence_number
+            observation.observation_time = timezone.now()
             
-        # Set GPS data
-        observation.latitude = Decimal(request.POST.get('latitude')) if request.POST.get('latitude') else None
-        observation.longitude = Decimal(request.POST.get('longitude')) if request.POST.get('longitude') else None
-        observation.gps_accuracy = Decimal(request.POST.get('gps_accuracy')) if request.POST.get('gps_accuracy') else None
-        observation.observation_time = timezone.now()
-        observation.status = 'completed'  # Mark as completed
-        
-        # Save the observation
-        observation.save()
-        
-        # Set M2M fields after saving
-        if pest_ids:
-            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids))
-        else:
-            observation.pests_observed.clear()
+            # Use our custom finalize method
+            observation.finalize(save=True)
             
-        if disease_ids:
-            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids))
-        else:
-            observation.diseases_observed.clear()
+            # Update many-to-many relationships
+            observation.pests_observed.set(Pest.objects.filter(id__in=pest_ids) if pest_ids else [])
+            observation.diseases_observed.set(Disease.objects.filter(id__in=disease_ids) if disease_ids else [])
             
-        # Handle image uploads
-        images = request.FILES.getlist('images')
-        print(f"Received {len(images)} files for observation {observation.id}")
-        saved_images = []
-        
-        for img_file in images:
-            try:
-                print(f"Processing image: {img_file.name}, size={img_file.size}, content_type={img_file.content_type}")
-                
-                # Create the image record
-                image_obj = ObservationImage.objects.create(
-                    observation=observation,
-                    image=img_file
-                )
-                print(f"Saved image {img_file.name} (ID: {image_obj.id}) for observation {observation.id}")
-                print(f"Image URL: {image_obj.image.url}")
-                saved_images.append({
-                    'id': image_obj.id,
-                    'url': image_obj.image.url,
-                    'name': img_file.name
-                })
-            except Exception as img_error:
-                print(f"Error saving image {img_file.name}: {img_error}")
-                import traceback
-                traceback.print_exc()
-        
-        # Print summary of saved images
-        print(f"SAVED IMAGES SUMMARY: {len(saved_images)} images saved")
-        for img in saved_images:
-            print(f"  - Image {img['id']}: {img['name']} -> {img['url']}")
-        
-        # Calculate counts for the response
-        completed_observations = Observation.objects.filter(session=session, status='completed')
-        completed_count = completed_observations.count()
-        
-        # Fix the reverse relationship names
-        unique_pests_count = Pest.objects.filter(observations__in=completed_observations).distinct().count()
-        unique_diseases_count = Disease.objects.filter(observations__in=completed_observations).distinct().count()
-        
-        # Prepare response data
-        response_data = {
-            'status': 'success',
-            'observation': {
-                'id': observation.id,
-                'time': observation.observation_time.strftime('%I:%M %p').lstrip('0'),
-                'latitude': str(observation.latitude) if observation.latitude else None,
-                'longitude': str(observation.longitude) if observation.longitude else None,
-                'pests': [{'name': p.name} for p in observation.pests_observed.all()],
-                'diseases': [{'name': d.name} for d in observation.diseases_observed.all()],
-                'notes': observation.notes,
-                'plant_sequence_number': observation.plant_sequence_number,
-                'images': [{'url': img.image.url, 'id': img.id} for img in observation.images.all()]
-            },
-            'counts': {
-                'completed': completed_count,
-                'unique_pests': unique_pests_count,
-                'unique_diseases': unique_diseases_count
-            }
-        }
-        
-        return JsonResponse(response_data)
-        
-    except SurveySession.DoesNotExist:
-        return JsonResponse({'status': 'error', 'message': 'Survey session not found.'}, status=404)
+            # Update session status if needed
+            if session.status == 'not_started':
+                session.status = 'in_progress'
+                session.save(update_fields=['status'])
+                logger.info(f"Updated session {session_id} status to 'in_progress'")
+            
+            # Process image uploads
+            files = request.FILES.getlist('images')
+            image_ids = []
+            
+            for img_file in files:
+                try:
+                    image = ObservationImage(observation=observation, image=img_file)
+                    image.save()
+                    image_ids.append(image.id)
+                    logger.debug(f"Saved image for observation {observation.id}")
+                except Exception as img_error:
+                    logger.error(f"Error saving image: {img_error}", exc_info=True)
+                    # Continue processing other images if one fails
+            
+            # Build response with observation data
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Observation saved successfully.',
+                'observation_id': observation.id,
+                'image_ids': image_ids,
+                'plant_number': plant_sequence_number,
+                'progress_percent': session.get_progress_percentage(),
+                'observation_count': session.observation_count()
+            })
+            
+        except Observation.DoesNotExist:
+            logger.warning(f"Draft observation {draft_id} not found for session {session_id}")
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Draft observation not found.'
+            }, status=404)
+        except Exception as obs_error:
+            logger.error(f"Error processing observation: {obs_error}", exc_info=True)
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Error processing observation data.'
+            }, status=500)
+            
     except Exception as e:
-        # Log the error
-        print(f"Error saving observation: {e}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({'status': 'error', 'message': f'Error saving observation: {e}'}, status=500)
+        logger.error(f"Error in create_observation_api: {e}", exc_info=True)
+        return JsonResponse({
+            'status': 'error', 
+            'message': 'An unexpected error occurred.'
+        }, status=500)
 
 
-@csrf_exempt # TODO: Replace with proper auth
+@csrf_exempt
 @require_POST
 @login_required
 def finish_survey_session_api(request, session_id):
     """
     API endpoint to mark a survey session as completed.
+    
+    This endpoint finalizes a survey session by marking it as completed,
+    recording the end time, and cleaning up any draft observations.
+    
+    Features:
+    - Validates that the session has at least one completed observation
+    - Deletes any remaining draft observations
+    - Updates session status and end time
+    - Returns redirection URL to the session detail page
+    
+    Args:
+        request: HTTP request
+        session_id: UUID of the survey session to complete
+        
+    Returns:
+        JsonResponse with success/error status and session info
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
-        session = get_object_or_404(
-            SurveySession, 
-            session_id=session_id, 
-            surveyor=request.user # Ensure user owns the session
-        )
-
-        # Check if the session is actually in progress
-        if session.status != 'in_progress':
-            return JsonResponse({'status': 'error', 'message': 'Session is not currently in progress.'}, status=400)
-
-        # Optional: Check if minimum observations met (can also be enforced client-side)
-        # target_plants = session.target_plants_surveyed or 0
-        # completed_plants = session.observations.count()
-        # if target_plants > 0 and completed_plants < target_plants:
-        #     return JsonResponse({'status': 'error', 'message': 'Minimum observations not yet recorded.'}, status=400)
-
-        # Update session status and end time
+        # Get the session and verify ownership
+        try:
+            session = SurveySession.objects.get(session_id=session_id, surveyor=request.user)
+            logger.info(f"Processing completion request for session {session_id} by {request.user.username}")
+        except SurveySession.DoesNotExist:
+            logger.warning(f"User {request.user.username} attempted to complete non-existent session {session_id}")
+            return JsonResponse({
+                'status': 'error', 
+                'message': 'Survey session not found.'
+            }, status=404)
+        
+        # Check if the session can be completed (not already completed or abandoned)
+        if not session.is_active():
+            logger.warning(
+                f"Cannot complete session {session_id} with status '{session.status}'"
+            )
+            return JsonResponse({
+                'status': 'error', 
+                'message': f'Session is already marked as {session.status}.'
+            }, status=400)
+            
+        # Count completed observations using our custom manager
+        completed_observations = Observation.objects.completed().filter(session=session).count()
+        if completed_observations == 0:
+            logger.warning(f"Attempted to complete session {session_id} with no observations")
+            return JsonResponse({
+                'status': 'error', 
+                'message': 'Cannot complete session with no observations.'
+            }, status=400)
+            
+        # Update the session status and end time
         session.status = 'completed'
         session.end_time = timezone.now()
         session.save(update_fields=['status', 'end_time'])
+        logger.info(f"Marked session {session_id} as completed with {completed_observations} observations")
         
-        print(f"API Finish Session: Marked session {session.session_id} as completed.")
-        messages.success(request, f"Survey session for {session.farm.name} completed successfully!") 
-
-        # Provide a URL to redirect to upon success (e.g., farm detail)
-        redirect_url = reverse('core:farm_detail', kwargs={'farm_id': session.farm.id})
-
+        # Delete any draft observations using our custom manager
+        draft_observations = Observation.objects.drafts().filter(session=session)
+        draft_count = draft_observations.count()
+        if draft_count > 0:
+            logger.info(f"Deleting {draft_count} draft observations from session {session_id}")
+            draft_observations.delete()
+        
+        # Generate summary info
+        unique_pests_count = session.get_unique_pests().count()
+        unique_diseases_count = session.get_unique_diseases().count()
+        
+        # Calculate duration if available
+        duration_minutes = session.duration()
+        
+        # Return success response with redirection URL and additional info
+        redirect_url = reverse('core:survey_session_detail', kwargs={'session_id': session_id})
         return JsonResponse({
             'status': 'success',
-            'message': 'Survey session completed.',
-            'redirect_url': redirect_url
+            'message': 'Survey session completed successfully.',
+            'redirect_url': redirect_url,
+            'completed_observations': completed_observations,
+            'unique_pests_count': unique_pests_count,
+            'unique_diseases_count': unique_diseases_count,
+            'duration_minutes': duration_minutes,
+            'session_summary': session.summarize()
         })
-
-    except Http404:
-        return JsonResponse({'status': 'error', 'message': 'Survey session not found or access denied.'}, status=404)
+        
     except Exception as e:
-        print(f"API Finish Session: Error finishing session {session_id}: {e}")
-        return JsonResponse({'status': 'error', 'message': f'An internal error occurred: {e}'}, status=500) 
+        logger.error(f"Error in finish_survey_session_api: {e}", exc_info=True)
+        return JsonResponse({
+            'status': 'error', 
+            'message': 'An unexpected error occurred.'
+        }, status=500)
 
 
 @login_required
@@ -1381,320 +1477,439 @@ def survey_session_list_view(request, farm_id):
 
 
 @login_required
+def generate_test_observation_data(farm_id):
+    """
+    Generate test observation data for demonstration purposes.
+    
+    Args:
+        farm_id: ID of the farm to generate test data for
+        
+    Returns:
+        tuple: (observation_coords, all_pests, all_diseases, farm_boundary_json)
+    """
+    # Only generate test data for farm with ID 1 or if special debug flag exists
+    all_pests = set()
+    all_diseases = set()
+    
+    # Generate test farm boundary (simple rectangle for farm 1)
+    farm_boundary_json = {
+        "type": "Feature",
+        "properties": {
+            "name": "Test Farm Boundary"
+        },
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [130.83916495, -12.46017243],
+                    [130.83941962, -12.46041745],
+                    [130.83957579, -12.46026002],
+                    [130.83932478, -12.46001226],
+                    [130.83916495, -12.46017243]  # Close the polygon by repeating first point
+                ]
+            ]
+        }
+    }
+    
+    # Create a function to generate points within the farm boundary polygon
+    def generate_point_within_polygon():
+        # Define exact corner points of our farm polygon
+        polygon_coords = [
+            [-12.46017243, 130.83916495],
+            [-12.46041745, 130.83941962],
+            [-12.46026002, 130.83957579],
+            [-12.46001226, 130.83932478],
+            [-12.46017243, 130.83916495]
+        ]
+        
+        # Extract min/max bounds
+        lats = [pt[0] for pt in polygon_coords]
+        lons = [pt[1] for pt in polygon_coords]
+        min_lat = min(lats)
+        max_lat = max(lats)
+        min_lon = min(lons)
+        max_lon = max(lons)
+        
+        # Generate a point with some random noise
+        center_lat = (min_lat + max_lat) / 2
+        center_lon = (min_lon + max_lon) / 2
+
+        import random
+        
+        # Use a triangle distribution to bias points toward center
+        def triangle_random():
+            # Returns values biased toward 0.5 (triangle distribution)
+            return (random.random() + random.random()) / 2
+        
+        # Generate random coordinates with bias toward center
+        lat_range = (max_lat - min_lat) * 0.6  # Reduced range for clustering
+        lon_range = (max_lon - min_lon) * 0.6
+        
+        # Generate point biased toward center
+        lat = center_lat + (triangle_random() - 0.5) * lat_range
+        lon = center_lon + (triangle_random() - 0.5) * lon_range
+        
+        return lat, lon
+    
+    # Generate test observation data
+    observation_coords = []
+    times = ["10:15 AM", "10:20 AM", "10:25 AM", "10:30 AM", "10:35 AM",
+             "10:40 AM", "10:45 AM", "10:50 AM", "10:55 AM", "11:00 AM",
+             "11:05 AM", "11:10 AM", "11:15 AM", "11:20 AM", "11:25 AM",
+             "11:30 AM", "11:35 AM", "11:40 AM", "11:45 AM", "11:50 AM"]
+    
+    # Define pests and diseases for our observations - using mango-specific ones
+    pest_options = ["Mango Leaf Hopper", "Mango Tip Borer", "Mango Fruit Fly", 
+                  "Mango Scale Insect", "Mango Seed Weevil"]
+    disease_options = ["Anthracnose", "Powdery Mildew", "Stem End Rot", 
+                     "Mango Malformation", "Bacterial Black Spot"]
+    
+    # Create observations with proper coordinates
+    import random
+    for i, time in enumerate(times):
+        # Generate point within polygon
+        lat, lon = generate_point_within_polygon()
+        
+        # Randomly assign pests and diseases
+        pest_count = random.randint(0, 2)  # 0-2 pests per observation
+        disease_count = random.randint(0, 1)  # 0-1 diseases per observation
+        
+        pests = random.sample(pest_options, pest_count) if pest_count > 0 else []
+        diseases = random.sample(disease_options, disease_count) if disease_count > 0 else []
+        
+        # Create the observation data
+        observation_coords.append({
+            "lat": lat,
+            "lon": lon,
+            "time": time,
+            "pests": pests,
+            "diseases": diseases,
+            "has_image": random.choice([True, False])
+        })
+    
+    # Extract unique pests and diseases
+    for obs in observation_coords:
+        for pest in obs['pests']:
+            all_pests.add(pest)
+        for disease in obs['diseases']:
+            all_diseases.add(disease)
+            
+    return observation_coords, all_pests, all_diseases, farm_boundary_json
+
+
 def survey_session_detail_view(request, session_id):
     """
     Displays the details of a completed or abandoned survey session.
-    Adds test observation data for demonstration purposes.
+    
+    Features:
+    - Shows all observations recorded during the session
+    - Displays a map with observation locations
+    - Shows statistics on pests and diseases found
+    - Provides test data for demonstration purposes when needed
+    
+    Args:
+        request: HTTP request object
+        session_id: UUID of the survey session
+        
+    Returns:
+        Rendered template with session details
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         # Fetch the session, prefetching related data for efficiency
         session = get_object_or_404(
             SurveySession.objects.select_related('farm', 'surveyor'), 
             session_id=session_id
         )
-        print(f"SessionDetail: Fetched session {session.session_id} for farm '{session.farm.name}'")
+        logger.info(f"Fetched session {session.session_id} for farm '{session.farm.name}'")
         
         # --- Permission Check --- 
         # Ensure the logged-in user is the surveyor (or potentially admin in future)
         if session.surveyor != request.user:
-             messages.error(request, "You do not have permission to view this survey session.")
-             print(f"SessionDetail: Permission denied for user {request.user.username} on session {session.session_id}")
-             # Redirect to farm list or session list for that farm
-             return redirect('core:survey_session_list', farm_id=session.farm.id) 
-             
-        # Optionally restrict view to only completed/abandoned?
-        # if session.status not in ['completed', 'abandoned']:
-        #     messages.warning(request, "This session is still in progress.")
-        #     return redirect('core:active_survey_session', session_id=session.session_id)
-
+            messages.error(request, "You do not have permission to view this survey session.")
+            logger.warning(
+                f"Permission denied for user {request.user.username} on session {session.session_id}"
+            )
+            return redirect('core:survey_session_list', farm_id=session.farm.id) 
     except Http404:
         messages.error(request, "Survey session not found.")
-        print(f"SessionDetail: SurveySession with ID {session_id} not found (404).")
-        # Redirect to dashboard or somewhere sensible if session ID is invalid
+        logger.warning(f"SurveySession with ID {session_id} not found")
         return redirect('core:dashboard') 
     except Exception as e:
-         messages.error(request, f"An error occurred accessing the survey session: {e}")
-         print(f"SessionDetail: Error fetching session {session_id}: {e}")
-         return redirect('core:dashboard')
+        messages.error(request, f"An error occurred accessing the survey session: {e}")
+        logger.error(f"Error fetching session {session_id}: {e}", exc_info=True)
+        return redirect('core:dashboard')
 
     # --- Fetch Observations with related data --- 
     observations = Observation.objects.filter(session=session).prefetch_related(
         'pests_observed', 
         'diseases_observed', 
-        'images' # Prefetch images
-    ).order_by('observation_time') # Order by time recorded
+        'images'
+    ).order_by('observation_time')
     
-    # --- Check if we should use test data for Farm 1 --- #
-    use_test_data = False
+    # --- Determine if we need test data ---
+    use_test_data = session.farm.id == 1 and not observations.exists()
+    
+    # --- Process observations or generate test data ---
+    observation_coords = []
     all_pests = set()
     all_diseases = set()
     
-    if session.farm.id == 1:  # For Farm 1, use test data
+    if use_test_data:
+        # Generate test data for demo purposes
         try:
-            # Use hardcoded test data for farm boundary in proper GeoJSON format
-            # Ensure coordinates are in proper order [longitude, latitude]
-            farm_boundary_json = {
-                "type": "Feature",
-                "properties": {},
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [
-                        [
-                            [130.83916495, -12.46017243],
-                            [130.83941962, -12.46041745],
-                            [130.83957579, -12.46026002],
-                            [130.83932478, -12.46001226],
-                            [130.83916495, -12.46017243]  # Close the polygon by repeating first point
-                        ]
-                    ]
-                }
-            }
+            farm_boundary_json, observation_coords = generate_test_observation_data(session.farm.id)
             
-            # Create a function to generate points within the farm boundary polygon
-            def generate_point_within_polygon():
-                # Define exact corner points of our farm polygon
-                polygon_coords = [
-                    [-12.46017243, 130.83916495],
-                    [-12.46041745, 130.83941962],
-                    [-12.46026002, 130.83957579],
-                    [-12.46001226, 130.83932478],
-                    [-12.46017243, 130.83916495]
-                ]
-                
-                # Extract min/max bounds
-                lats = [pt[0] for pt in polygon_coords]
-                lons = [pt[1] for pt in polygon_coords]
-                min_lat = min(lats)
-                max_lat = max(lats)
-                min_lon = min(lons)
-                max_lon = max(lons)
-                
-                # Generate a point with some random noise
-                # We'll generate points closer to the center for better visual effect
-                center_lat = (min_lat + max_lat) / 2
-                center_lon = (min_lon + max_lon) / 2
-
-                # This is a simplified approach - for a more complex polygon, 
-                # you'd want to use a point-in-polygon algorithm
-                import random
-                
-                # Use a triangle distribution to bias points toward center
-                def triangle_random():
-                    # Returns values biased toward 0.5 (triangle distribution)
-                    return (random.random() + random.random()) / 2
-                
-                # Generate random coordinates with stronger bias toward center
-                # This is a simple approach - points might occasionally fall outside
-                # but will generally be clustered in the center area
-                lat_range = (max_lat - min_lat) * 0.6  # Reduced range for tighter clustering
-                lon_range = (max_lon - min_lon) * 0.6
-                
-                # Generate point biased toward center
-                lat = center_lat + (triangle_random() - 0.5) * lat_range
-                lon = center_lon + (triangle_random() - 0.5) * lon_range
-                
-                # For Leaflet display
-                return lat, lon
-            
-            # Hardcoded test observation data with correctly simulated coordinates
-            observation_coords = []
-            times = ["10:15 AM", "10:20 AM", "10:25 AM", "10:30 AM", "10:35 AM",
-                     "10:40 AM", "10:45 AM", "10:50 AM", "10:55 AM", "11:00 AM",
-                     "11:05 AM", "11:10 AM", "11:15 AM", "11:20 AM", "11:25 AM",
-                     "11:30 AM", "11:35 AM", "11:40 AM", "11:45 AM", "11:50 AM"]
-            
-            # Define pests and diseases for our observations
-            pest_options = ["Mango Leaf Hopper", "Mango Tip Borer", "Mango Fruit Fly", 
-                           "Mango Scale Insect", "Mango Seed Weevil"]
-            disease_options = ["Anthracnose", "Powdery Mildew", "Stem End Rot", 
-                              "Mango Malformation", "Bacterial Black Spot"]
-            
-            # Create observations with proper coordinates
-            import random
-            for i, time in enumerate(times):
-                # Generate point within polygon
-                lat, lon = generate_point_within_polygon()
-                
-                # Randomly assign pests and diseases
-                pest_count = random.randint(0, 2)  # 0-2 pests per observation
-                disease_count = random.randint(0, 1)  # 0-1 diseases per observation
-                
-                pests = random.sample(pest_options, pest_count) if pest_count > 0 else []
-                diseases = random.sample(disease_options, disease_count) if disease_count > 0 else []
-                
-                # Create the observation data
-                observation_coords.append({
-                    "lat": lat,
-                    "lon": lon,
-                    "time": time,
-                    "pests": pests,
-                    "diseases": diseases,
-                    "has_image": random.choice([True, False])
-                })
-            
-            # Print the first few coordinates for debugging
-            print(f"First test coordinate: lat={observation_coords[0]['lat']}, lon={observation_coords[0]['lon']}")
-            print(f"Farm boundary data (test): {json.dumps(farm_boundary_json)}")
-            
-            # Extract unique pests and diseases from test data for statistics
+            # Extract unique pests and diseases for stats
             for obs in observation_coords:
-                for pest in obs['pests']:
-                    all_pests.add(pest)
-                for disease in obs['diseases']:
-                    all_diseases.add(disease)
-            
-            use_test_data = True
-            print(f"Using test data for farm ID 1 with {len(observation_coords)} observations")
+                all_pests.update(obs['pests'])
+                all_diseases.update(obs['diseases'])
         except Exception as e:
+            logger.error(f"Error generating test data: {e}", exc_info=True)
             use_test_data = False
-            print(f"Error setting up test data, falling back to actual data: {e}")
-    
-    # --- Prepare Coordinates for Map (for non-test farms) --- #
-    if not use_test_data:
+    else:
+        # Process actual observation data
         observation_coords = []
         for obs in observations:
-            if obs.latitude and obs.longitude:
+            if obs.has_coordinates():
                 observation_coords.append({
                     'lat': float(obs.latitude), 
                     'lon': float(obs.longitude),
                     'time': obs.observation_time.strftime('%I:%M %p'),
                     'pests': [p.name for p in obs.pests_observed.all()],
                     'diseases': [d.name for d in obs.diseases_observed.all()],
-                    'has_image': obs.images.exists() # Check if image exists
+                    'has_image': obs.has_images()
                 })
     
+    # Serialize observation coordinates for the map
     observation_coords_json = json.dumps(observation_coords)
 
-    # --- Calculate Stats --- #
+    # --- Calculate stats and prepare context data ---
     if use_test_data:
-        # For test data, use our extracted counts
+        # For test data, create mock objects
         completed_count = len(observation_coords)
-        
-        # Create simple objects with a 'name' attribute for the template
-        class MockPest:
-            def __init__(self, name):
-                self.name = name
-                
-        class MockDisease:
-            def __init__(self, name):
-                self.name = name
-        
-        # Create mock observations for the template
-        class MockObservation:
-            def __init__(self, data):
-                self.id = f"mock-{id(data)}"  # Create a unique ID
-                try:
-                    self.observation_time = datetime.strptime(data['time'], '%I:%M %p')
-                except (ValueError, TypeError):
-                    self.observation_time = timezone.now()
-                self.latitude = data['lat']
-                self.longitude = data['lon']
-                self.gps_accuracy = 5.0  # Mock accuracy value
-                self.notes = f"Observation at {data['time']}"
-                self._pests = data['pests']
-                self._diseases = data['diseases']
-                self._has_image = data['has_image']
-                
-            # Mock the relationships as properties
-            @property
-            def pests_observed(self):
-                class MockRelation:
-                    def __init__(self, names):
-                        self.names = names
-                    def all(self):
-                        return [MockPest(name) for name in self.names]
-                return MockRelation(self._pests)
-                
-            @property
-            def diseases_observed(self):
-                class MockRelation:
-                    def __init__(self, names):
-                        self.names = names
-                    def all(self):
-                        return [MockDisease(name) for name in self.names]
-                return MockRelation(self._diseases)
-                
-            @property
-            def images(self):
-                class MockImages:
-                    def __init__(self, has_image):
-                        self.has_image = has_image
-                    def exists(self):
-                        return self.has_image
-                    def first(self):
-                        if not self.has_image:
-                            return None
-                        return type('MockImage', (), {'image': type('MockImageField', (), {'url': '/static/img/mock-image.jpg'})})
-                return MockImages(self._has_image)
-        
-        # Create the mock observations
-        observations = [MockObservation(data) for data in observation_coords]
-        
-        # Create a mock QuerySet class with count method
-        class MockQuerySet:
-            def __init__(self, items):
-                self.items = items
-            
-            def count(self):
-                return len(self.items)
-                
-            def __iter__(self):
-                return iter(self.items)
-        
-        # Create objects for template rendering wrapped in MockQuerySet
-        unique_pests = MockQuerySet([MockPest(name) for name in all_pests])
-        unique_diseases = MockQuerySet([MockDisease(name) for name in all_diseases])
+        observations, unique_pests, unique_diseases = create_mock_observations(
+            observation_coords, all_pests, all_diseases
+        )
     else:
-        # For real data, use the database
+        # For real data, use database queries
         completed_count = observations.count()
         unique_pests = Pest.objects.filter(observations__session=session).distinct()
         unique_diseases = Disease.objects.filter(observations__session=session).distinct()
 
-    # Add farm boundary data to context
+    # --- Process farm boundary data ---
     farm_boundary_json = session.farm.boundary if session.farm.boundary else None
     
-    # Add debug info
-    if use_test_data:
-        print(f"Using {len(all_pests)} unique pests and {len(all_diseases)} unique diseases from test data")
-        
-        # For test data, farm_boundary_json is already in the right format (Feature)
-        # Just convert it to a string
+    if use_test_data and farm_boundary_json:
+        # For test data, convert dict to JSON string
         farm_boundary_json_str = json.dumps(farm_boundary_json)
-        
-        # Debug the final GeoJSON that will be sent to the template
-        print(f"Final GeoJSON for farm boundary: {farm_boundary_json_str}")
     else:
         # For real data, the boundary is already a JSON string
         farm_boundary_json_str = farm_boundary_json
     
+    # --- Prepare context for template ---
     context = {
         'session': session,
         'farm': session.farm,
         'observations': observations,
         'completed_count': completed_count,
-        'unique_pests_count': unique_pests.count(), # Now works for both test and real data
-        'unique_diseases_count': unique_diseases.count(), # Now works for both test and real data
+        'unique_pests_count': unique_pests.count(),
+        'unique_diseases_count': unique_diseases.count(),
         'unique_pests': unique_pests,
         'unique_diseases': unique_diseases,
-        'observation_coords_json': observation_coords_json, # Add coordinates JSON to context
-        'farm_boundary_json': farm_boundary_json_str, # Add farm boundary data as JSON string
-        'using_test_data': use_test_data  # Flag to indicate we're using test data
+        'observation_coords_json': observation_coords_json,
+        'farm_boundary_json': farm_boundary_json_str,
+        'using_test_data': use_test_data
     }
 
-    # --- DEBUG: Print context before rendering ---
-    print("\\n--- DEBUG: Context for survey_session_detail ---")
-    print(f"Session ID: {session.session_id}")
-    print(f"Farm ID: {session.farm.id}")
-    print(f"Using test data: {use_test_data}")
-    print(f"Observation count: {completed_count}")
-    print(f"Unique pests: {context['unique_pests_count']}")
-    print(f"Unique diseases: {context['unique_diseases_count']}")
-    print("--------------------------------------------\\n")
-
-    return render(request, 'core/survey_session_detail.html', context) 
+    return render(request, 'core/survey_session_detail.html', context)
 
 
-# --- PDF Generation View ---
+def generate_test_observation_data(farm_id):
+    """
+    Generate test observation data for demonstration purposes.
+    
+    Args:
+        farm_id: ID of the farm to generate test data for
+        
+    Returns:
+        tuple: (farm_boundary_json, observation_coords)
+    """
+    import random
+    from datetime import datetime
+    
+    # Use hardcoded test data for farm boundary in proper GeoJSON format
+    farm_boundary_json = {
+        "type": "Feature",
+        "properties": {},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [130.83916495, -12.46017243],
+                    [130.83941962, -12.46041745],
+                    [130.83957579, -12.46026002],
+                    [130.83932478, -12.46001226],
+                    [130.83916495, -12.46017243]  # Close the polygon
+                ]
+            ]
+        }
+    }
+    
+    # Define polygon coordinates for point generation
+    polygon_coords = [
+        [-12.46017243, 130.83916495],
+        [-12.46041745, 130.83941962],
+        [-12.46026002, 130.83957579],
+        [-12.46001226, 130.83932478],
+        [-12.46017243, 130.83916495]
+    ]
+    
+    # Extract min/max bounds
+    lats = [pt[0] for pt in polygon_coords]
+    lons = [pt[1] for pt in polygon_coords]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+    center_lat = (min_lat + max_lat) / 2
+    center_lon = (min_lon + max_lon) / 2
+    
+    # Sample observation times
+    times = ["10:15 AM", "10:20 AM", "10:25 AM", "10:30 AM", "10:35 AM",
+             "10:40 AM", "10:45 AM", "10:50 AM", "10:55 AM", "11:00 AM",
+             "11:05 AM", "11:10 AM", "11:15 AM", "11:20 AM", "11:25 AM",
+             "11:30 AM", "11:35 AM", "11:40 AM", "11:45 AM", "11:50 AM"]
+    
+    # Mango-specific pests and diseases
+    pest_options = ["Mango Leaf Hopper", "Mango Tip Borer", "Mango Fruit Fly", 
+                   "Mango Scale Insect", "Mango Seed Weevil"]
+    disease_options = ["Anthracnose", "Powdery Mildew", "Stem End Rot", 
+                      "Mango Malformation", "Bacterial Black Spot"]
+    
+    observation_coords = []
+    
+    # Generate test observations
+    for time in times:
+        # Generate point with bias toward center
+        lat_range = (max_lat - min_lat) * 0.6  # Reduced range for tighter clustering
+        lon_range = (max_lon - min_lon) * 0.6
+        
+        # Use triangle distribution for more realistic point clustering
+        triangle_random = lambda: (random.random() + random.random()) / 2
+        
+        lat = center_lat + (triangle_random() - 0.5) * lat_range
+        lon = center_lon + (triangle_random() - 0.5) * lon_range
+        
+        # Randomly assign pests and diseases
+        pest_count = random.randint(0, 2)  # 0-2 pests per observation
+        disease_count = random.randint(0, 1)  # 0-1 diseases per observation
+        
+        pests = random.sample(pest_options, pest_count) if pest_count > 0 else []
+        diseases = random.sample(disease_options, disease_count) if disease_count > 0 else []
+        
+        # Create the observation data
+        observation_coords.append({
+            "lat": lat,
+            "lon": lon,
+            "time": time,
+            "pests": pests,
+            "diseases": diseases,
+            "has_image": random.choice([True, False])
+        })
+    
+    return farm_boundary_json, observation_coords
+
+
+def create_mock_observations(observation_coords, all_pests, all_diseases):
+    """
+    Create mock observation objects for template rendering from test data.
+    
+    Args:
+        observation_coords: List of test observation coordinate dictionaries
+        all_pests: Set of all pest names
+        all_diseases: Set of all disease names
+        
+    Returns:
+        tuple: (mock_observations, mock_pests, mock_diseases)
+    """
+    from datetime import datetime
+    
+    # Create mock classes for test data rendering
+    class MockPest:
+        def __init__(self, name):
+            self.name = name
+            
+    class MockDisease:
+        def __init__(self, name):
+            self.name = name
+    
+    class MockObservation:
+        def __init__(self, data):
+            self.id = f"mock-{id(data)}"  # Create a unique ID
+            try:
+                self.observation_time = datetime.strptime(data['time'], '%I:%M %p')
+            except (ValueError, TypeError):
+                self.observation_time = timezone.now()
+            self.latitude = data['lat']
+            self.longitude = data['lon']
+            self.gps_accuracy = 5.0  # Mock accuracy value
+            self.notes = f"Observation at {data['time']}"
+            self._pests = data['pests']
+            self._diseases = data['diseases']
+            self._has_image = data['has_image']
+            
+        @property
+        def pests_observed(self):
+            class MockRelation:
+                def __init__(self, names):
+                    self.names = names
+                def all(self):
+                    return [MockPest(name) for name in self.names]
+            return MockRelation(self._pests)
+            
+        @property
+        def diseases_observed(self):
+            class MockRelation:
+                def __init__(self, names):
+                    self.names = names
+                def all(self):
+                    return [MockDisease(name) for name in self.names]
+            return MockRelation(self._diseases)
+            
+        @property
+        def images(self):
+            class MockImages:
+                def __init__(self, has_image):
+                    self.has_image = has_image
+                def exists(self):
+                    return self.has_image
+                def first(self):
+                    if not self.has_image:
+                        return None
+                    return type('MockImage', (), {'image': type('MockImageField', (), {'url': '/static/img/mock-image.jpg'})})
+            return MockImages(self._has_image)
+    
+    # Create a mock QuerySet class
+    class MockQuerySet:
+        def __init__(self, items):
+            self.items = items
+        
+        def count(self):
+            return len(self.items)
+            
+        def __iter__(self):
+            return iter(self.items)
+    
+    # Create the mock objects
+    mock_observations = [MockObservation(data) for data in observation_coords]
+    mock_pests = MockQuerySet([MockPest(name) for name in all_pests])
+    mock_diseases = MockQuerySet([MockDisease(name) for name in all_diseases])
+    
+    return mock_observations, mock_pests, mock_diseases
+
+
+# --- PDF Generation View Implementation to be added later ---
 # @login_required
 # def generate_survey_pdf_view(request, session_id):
 #     """
