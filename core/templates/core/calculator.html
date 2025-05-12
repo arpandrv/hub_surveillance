@@ -9,10 +9,27 @@
     .seasonal-timeline {
         margin: 1rem 0;
     }
+
     .timeline-header {
         font-size: 0.7rem;
         color: #666;
+        display: flex;
+        justify-content: space-between;
     }
+
+    @media (max-width: 767.98px) {
+        .timeline-header {
+            font-size: 0.6rem; /* Smaller font on mobile */
+        }
+
+        /* Only show every other month label on very small screens */
+        @media (max-width: 374.98px) {
+            .timeline-header span:nth-child(even) {
+                opacity: 0;
+            }
+        }
+    }
+
     .timeline-bars {
         display: flex;
         height: 12px;
@@ -20,57 +37,539 @@
         overflow: hidden;
         background-color: #f0f0f0;
     }
+
     .timeline-month {
         flex: 1;
         height: 100%;
         position: relative;
         transition: all 0.2s ease;
     }
+
     .timeline-month:not(.empty) {
         background-color: #17a2b8;
         opacity: 0.6;
     }
+
     .timeline-month.current {
         background-color: #17a2b8;
         opacity: 1;
         box-shadow: 0 0 0 2px #fff inset;
     }
+
     .timeline-month:hover {
         transform: scaleY(1.5);
         z-index: 10;
     }
+
     .timeline-month.empty {
         background-color: #f0f0f0;
     }
-    
+
     /* Collapse Section Styling */
     .card-header[data-bs-toggle="collapse"] {
         cursor: pointer;
         transition: background-color 0.2s ease;
     }
+
     .card-header[data-bs-toggle="collapse"]:hover {
         background-color: rgba(0,0,0,0.03);
     }
+
     .collapse-icon {
         transition: transform 0.3s ease;
     }
+
     .collapse.show + .card-header .collapse-icon,
     [aria-expanded="true"] .collapse-icon {
         transform: rotate(180deg);
+    }
+
+    /* Responsive card improvements */
+    .calculator-card {
+        height: 100%;
+        transition: all 0.2s ease;
+    }
+
+    .calculator-card:hover {
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+
+    /* Result styling */
+    .result-highlight {
+        padding: 1rem;
+        border-radius: 8px;
+        background-color: rgba(25, 135, 84, 0.05);
+        transition: all 0.3s ease;
+    }
+
+    .result-highlight:hover {
+        background-color: rgba(25, 135, 84, 0.1);
+    }
+
+    /* Mobile optimizations */
+    @media (max-width: 767.98px) {
+        /* Sticky calculation results on mobile */
+        .sticky-results {
+            position: sticky;
+            top: 60px; /* Adjust based on your navbar height */
+            z-index: 100;
+        }
+
+        /* Fix layout on mobile */
+        .calculator-layout {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Mobile-first order - show results first if calculated */
+        .results-card-order {
+            order: 1;
+        }
+
+        .form-card-order {
+            order: 2;
+        }
+
+        /* Compact pest/disease lists on mobile */
+        .compact-list ul {
+            padding-left: 1rem;
+            margin-bottom: 0.5rem;
+        }
+    }
+
+    /* Mobile tab navigation */
+    .calculator-tabs .nav-link {
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: #6c757d;
+        border-radius: 0;
+        padding: 0.5rem 0.25rem;
+        margin-right: 1rem;
+        font-weight: 500;
+    }
+
+    .calculator-tabs .nav-link.active {
+        color: #0d6efd;
+        border-bottom: 3px solid #0d6efd;
+        background-color: transparent;
+    }
+
+    /* Mobile result card */
+    .mobile-result-banner {
+        padding: 10px 15px;
+        margin: -16px -16px 16px -16px; /* Negative margins to extend to edges */
+        background: linear-gradient(to right, #198754, #20c997);
+        color: white;
+        border-radius: 0;
+        text-align: center;
+    }
+
+    /* Mobile methodology section */
+    .mobile-methodology-section {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 16px;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="row">
-    {# Left Side: Form #}
+<!-- Mobile Tab Navigation -->
+<div class="d-block d-md-none mb-3">
+    <ul class="nav calculator-tabs" id="calculatorTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if not form_submitted or calculation_results.error %}active{% endif %}"
+                    id="calculator-form-tab" data-bs-toggle="tab" data-bs-target="#calculator-form"
+                    type="button" role="tab" aria-controls="calculator-form"
+                    aria-selected="{% if not form_submitted or calculation_results.error %}true{% else %}false{% endif %}">
+                <i class="bi bi-calculator me-1"></i> Calculate
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if form_submitted and not calculation_results.error %}active{% endif %}"
+                    id="calculator-results-tab" data-bs-toggle="tab" data-bs-target="#calculator-results"
+                    type="button" role="tab" aria-controls="calculator-results"
+                    aria-selected="{% if form_submitted and not calculation_results.error %}true{% else %}false{% endif %}">
+                <i class="bi bi-graph-up me-1"></i> Results
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="calculator-season-tab" data-bs-toggle="tab" data-bs-target="#calculator-season"
+                    type="button" role="tab" aria-controls="calculator-season" aria-selected="false">
+                <i class="bi bi-calendar me-1"></i> Season
+            </button>
+        </li>
+    </ul>
+</div>
+
+<!-- Mobile Tab Content -->
+<div class="d-block d-md-none">
+    <div class="tab-content" id="calculatorTabContent">
+        <!-- Mobile Form Tab -->
+        <div class="tab-pane fade {% if not form_submitted or calculation_results.error %}show active{% endif %}"
+             id="calculator-form" role="tabpanel" aria-labelledby="calculator-form-tab">
+
+            <div class="card shadow mb-4">
+                <!-- Quick Results Info (if calculated) -->
+                {% if form_submitted and calculation_results and not calculation_results.error %}
+                <div class="mobile-result-banner">
+                    <div class="fw-bold">{{ calculation_results.required_plants_to_survey }} plants</div>
+                    <div class="small">at {{ calculation_results.confidence_level_percent }}% confidence</div>
+                </div>
+                {% endif %}
+
+                <div class="card-body">
+                    <form method="get" action="{% url 'core:calculator' %}" novalidate>
+                        <!-- Farm Selection -->
+                        <div class="mb-3">
+                            <label for="{{ form.farm.id_for_label }}" class="form-label fw-bold">
+                                {{ form.farm.label }}
+                                <i class="bi bi-info-circle-fill text-info ms-1"
+                                   data-bs-toggle="tooltip"
+                                   data-bs-placement="top"
+                                   title="The farm for which you're calculating the surveillance sample size."></i>
+                            </label>
+                            {{ form.farm }}
+                            {% if form.farm.errors %}<div class="text-danger small mt-1">{{ form.farm.errors|striptags }}</div>{% endif %}
+                        </div>
+
+                        <!-- Confidence Level -->
+                        <div class="mb-3">
+                            <label for="{{ form.confidence_level.id_for_label }}" class="form-label fw-bold">
+                                {{ form.confidence_level.label }}
+                                <i class="bi bi-info-circle-fill text-info ms-1"
+                                   data-bs-toggle="tooltip"
+                                   data-bs-placement="top"
+                                   title="How confident you want to be in your surveillance."></i>
+                            </label>
+                            {{ form.confidence_level }}
+                            {% if form.confidence_level.errors %}<div class="text-danger small mt-1">{{ form.confidence_level.errors|striptags }}</div>{% endif %}
+
+                            <div class="mt-2 small text-secondary compact-list">
+                                <i class="bi bi-shield-check me-1"></i> <strong>Impact on reliability:</strong>
+                                <ul class="mt-1 mb-0 ps-3">
+                                    <li><strong>90%</strong>: Basic - routine monitoring</li>
+                                    <li><strong>95%</strong>: Standard - recommended</li>
+                                    <li><strong>99%</strong>: High - for elevated risk</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Current Stage Info -->
+                        {% if current_stage and current_prevalence_p is not None %}
+                        <div class="alert alert-info py-2 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-calendar-check fs-4 me-2"></i>
+                                <div>
+                                    <div class="small mb-0">Current stage: <strong>{{ current_stage }}</strong></div>
+                                    <div class="small text-muted">Month: {{ month_used_for_calc }} | Prevalence: {{ current_prevalence_p }}%</div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Submit Button -->
+                        <button type="submit" class="btn btn-primary w-100 py-2 btn-lg btn-calculate">
+                            <i class="bi bi-calculator me-1"></i> Calculate
+                        </button>
+                    </form>
+
+                    <!-- Debug Tool (Collapsed by Default on Mobile) -->
+                    <div class="mt-3">
+                        <div class="d-grid">
+                            <button class="btn btn-sm btn-outline-secondary" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#mobileDebugCollapse"
+                                    aria-expanded="false" aria-controls="mobileDebugCollapse">
+                                <i class="bi bi-bug-fill me-1"></i> Debug Options
+                            </button>
+                        </div>
+                        <div class="collapse mt-2" id="mobileDebugCollapse">
+                            <div class="card card-body py-2">
+                                <small class="text-muted d-block mb-1"><strong>Debug Tool:</strong> Override Month</small>
+                                <form method="get" action="{% url 'core:calculator' %}" class="d-flex align-items-center">
+                                    <!-- Pass existing parameters -->
+                                    {% if form.farm.value %}
+                                        <input type="hidden" name="farm" value="{{ form.farm.value }}">
+                                    {% endif %}
+                                    {% if form.confidence_level.value %}
+                                        <input type="hidden" name="confidence_level" value="{{ form.confidence_level.value }}">
+                                    {% endif %}
+
+                                    <label for="debug_month_input" class="form-label small me-2 mb-0">Month (1-12):</label>
+                                    <input type="number" id="debug_month_input" name="debug_month"
+                                          min="1" max="12" step="1"
+                                          class="form-control form-control-sm me-2"
+                                          style="width: 70px;"
+                                          value="{{ request.GET.debug_month }}">
+                                    <button type="submit" class="btn btn-warning btn-sm">Apply</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Results Tab -->
+        <div class="tab-pane fade {% if form_submitted and not calculation_results.error %}show active{% endif %}"
+             id="calculator-results" role="tabpanel" aria-labelledby="calculator-results-tab">
+
+            {% if form_submitted and calculation_results and not calculation_results.error %}
+                <div class="card shadow mb-4">
+                    <div class="card-body">
+                        <!-- Farm & Confidence Info -->
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-geo-alt fs-4 text-primary"></i>
+                            </div>
+                            <div class="ms-2">
+                                <h6 class="mb-0">{{ selected_farm.name }}</h6>
+                                <p class="mb-0 small text-muted">{{ calculation_results.N }} plants | {{ calculation_results.confidence_level_percent }}% confidence</p>
+                            </div>
+                        </div>
+
+                        <!-- Main Result -->
+                        <div class="text-center py-3 result-highlight mb-3">
+                            <div class="text-muted mb-1">Recommended plants to survey:</div>
+                            <div class="display-4 fw-bold text-success mb-1">
+                                {{ calculation_results.required_plants_to_survey }}
+                            </div>
+
+                            <!-- Progress Bar -->
+                            {% if calculation_results.percentage_of_total is not None %}
+                            <div class="progress mt-2 mb-1 mx-auto" style="height: 8px; max-width: 200px;">
+                                <div class="progress-bar bg-success" role="progressbar"
+                                     style="width: {{ calculation_results.percentage_of_total }}%;"
+                                     aria-valuenow="{{ calculation_results.percentage_of_total }}"
+                                     aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                            <div class="text-muted small mb-0">
+                                {{ calculation_results.percentage_of_total|floatformat:1 }}% of total plants
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Survey Frequency -->
+                        {% if calculation_results.survey_frequency %}
+                        <div class="alert alert-info mb-3 text-center">
+                            <i class="bi bi-search me-1"></i> Check 1 in every {{ calculation_results.survey_frequency }} plants
+                        </div>
+                        {% endif %}
+
+                        <!-- Stage Info -->
+                        <div class="d-flex align-items-center mt-3 mb-2">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-calendar-check fs-4 text-info"></i>
+                            </div>
+                            <div class="ms-2">
+                                <h6 class="mb-0">{{ current_stage }}</h6>
+                                <p class="mb-0 small text-muted">
+                                    Month: {{ month_used_for_calc }} | Prevalence: {{ current_prevalence_p }}%
+                                    {% if request.GET.debug_month %}
+                                        <span class="badge bg-warning text-dark ms-1">Debug</span>
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Quick Explanation -->
+                        <div class="mobile-methodology-section mt-3">
+                            <p class="small mb-2">
+                                <i class="bi bi-lightbulb"></i> <strong>How to use this number:</strong>
+                            </p>
+                            <ul class="small mb-0 ps-3">
+                                <li>Survey {{ calculation_results.required_plants_to_survey }} plants across your farm</li>
+                                <li>Spread samples evenly throughout your orchard</li>
+                                <li>Focus on plant parts likely to show symptoms</li>
+                            </ul>
+                        </div>
+
+                        <!-- Action Button -->
+                        <div class="d-grid gap-2 mt-3">
+                            <a href="{% url 'core:start_survey_session' selected_farm.id %}" class="btn btn-primary">
+                                <i class="bi bi-play-circle me-1"></i> Start Survey Session
+                            </a>
+                            <a href="{% url 'core:farm_detail' farm_id=selected_farm.id %}" class="btn btn-outline-primary">
+                                <i class="bi bi-eye"></i> View Farm Details
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            {% elif form_submitted and calculation_results.error %}
+                <div class="card shadow mb-4">
+                    <div class="card-body">
+                        <div class="alert alert-danger">
+                            <h6 class="alert-heading"><i class="bi bi-exclamation-triangle-fill me-2"></i>Calculation Error</h6>
+                            <p class="small mb-1">{{ calculation_results.error }}</p>
+                            <p class="small mb-0">Check farm details and try again.</p>
+                        </div>
+                        <div class="d-grid mt-3">
+                            <button class="btn btn-primary" id="mobileRetryBtn">
+                                <i class="bi bi-arrow-left me-1"></i> Back to Calculator
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <div class="card shadow mb-4">
+                    <div class="card-body text-center py-5">
+                        <i class="bi bi-calculator display-4 text-muted mb-3"></i>
+                        <h5>No Calculation Yet</h5>
+                        <p class="text-muted">Select a farm and confidence level to calculate the required sample size.</p>
+                        <button class="btn btn-primary" id="mobileGoToFormBtn">
+                            <i class="bi bi-calculator me-1"></i> Go to Calculator
+                        </button>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Mobile Season Info Tab -->
+        <div class="tab-pane fade" id="calculator-season" role="tabpanel" aria-labelledby="calculator-season-tab">
+            <div class="card shadow mb-4">
+                <div class="card-body">
+                    {% if current_stage and current_prevalence_p is not None %}
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-calendar-check fs-4 text-info"></i>
+                            </div>
+                            <div class="ms-2">
+                                <h6 class="mb-0">Current Stage: <strong>{{ current_stage }}</strong></h6>
+                                <p class="mb-0 small text-muted">
+                                    Month: {{ month_used_for_calc }} | Prevalence: {{ current_prevalence_p }}%
+                                    {% if request.GET.debug_month %}
+                                        <span class="badge bg-warning text-dark ms-1">Debug Month</span>
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Seasonal Timeline -->
+                        <div class="seasonal-timeline mb-3">
+                            <div class="timeline-header mb-1">
+                                <span>Jan</span>
+                                <span>Feb</span>
+                                <span>Mar</span>
+                                <span>Apr</span>
+                                <span>May</span>
+                                <span>Jun</span>
+                                <span>Jul</span>
+                                <span>Aug</span>
+                                <span>Sep</span>
+                                <span>Oct</span>
+                                <span>Nov</span>
+                                <span>Dec</span>
+                            </div>
+                            <div class="timeline-bars">
+                                {% for month_num in "123456789101112" %}
+                                    {% if forloop.counter == month_used_for_calc %}
+                                        <div class="timeline-month current"
+                                            data-bs-toggle="tooltip"
+                                            data-bs-placement="top"
+                                            title="{{ current_stage }} (Current Month)">
+                                        </div>
+                                    {% else %}
+                                        <div class="timeline-month{% if forloop.counter != month_used_for_calc %} empty{% endif %}">
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <!-- Pests & Diseases -->
+                        <div class="row g-3 mt-3">
+                            {% if current_pests %}
+                                <div class="col-6">
+                                    <div class="card h-100">
+                                        <div class="card-header py-2 bg-danger text-white">
+                                            <i class="bi bi-bug me-1"></i> Active Pests
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <ul class="list-unstyled mb-0 small">
+                                                {% for pest in current_pests %}
+                                                <li class="mb-1">
+                                                    <strong>{{ pest.name }}</strong>
+                                                    {% if pest.description %}
+                                                    <button class="btn btn-sm btn-link text-danger p-0 ms-1"
+                                                            data-bs-toggle="tooltip"
+                                                            data-bs-placement="top"
+                                                            title="{{ pest.description }}">
+                                                        <i class="bi bi-info-circle-fill"></i>
+                                                    </button>
+                                                    {% endif %}
+                                                </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            {% if current_diseases %}
+                                <div class="col-6">
+                                    <div class="card h-100">
+                                        <div class="card-header py-2 bg-warning text-dark">
+                                            <i class="bi bi-virus me-1"></i> Active Diseases
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <ul class="list-unstyled mb-0 small">
+                                                {% for disease in current_diseases %}
+                                                <li class="mb-1">
+                                                    <strong>{{ disease.name }}</strong>
+                                                    {% if disease.description %}
+                                                    <button class="btn btn-sm btn-link text-warning p-0 ms-1"
+                                                            data-bs-toggle="tooltip"
+                                                            data-bs-placement="top"
+                                                            title="{{ disease.description }}">
+                                                        <i class="bi bi-info-circle-fill"></i>
+                                                    </button>
+                                                    {% endif %}
+                                                </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning small mb-0">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                            No seasonal information available. Please ensure seasonal stages are configured in the admin panel.
+                        </div>
+                    {% endif %}
+
+                    <!-- Methodology Info -->
+                    <div class="card mt-3">
+                        <div class="card-header bg-light py-2">
+                            <i class="bi bi-info-circle me-1"></i> About Seasonal Data
+                        </div>
+                        <div class="card-body p-2">
+                            <p class="small mb-2">Pest and disease prevalence varies throughout the year based on:</p>
+                            <ul class="small mb-0">
+                                <li>Current growing stage</li>
+                                <li>Local climate conditions</li>
+                                <li>Seasonal pest cycles</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Desktop View - Side-by-Side Layout -->
+<div class="row calculator-layout g-4 d-none d-md-flex">
+    <!-- Left Side: Form -->
     <div class="col-md-5">
-        <div class="card shadow-sm">
-            <div class="card-header bg-primary text-white">
+        <div class="card calculator-card shadow">
+            <div class="card-header bg-primary bg-gradient text-white">
                 <h5 class="mb-0">Calculate Sample Size</h5>
             </div>
             <div class="card-body">
-                {# Seasonal Context Panel #}
+                <!-- Seasonal Context Panel -->
                 <div class="card border-info mb-4">
                     <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center"
                          role="button" data-bs-toggle="collapse" data-bs-target="#seasonalContextCollapse"
@@ -90,29 +589,29 @@
                                     <p class="mb-0 small text-muted">Month: {{ month_used_for_calc }} | Estimated prevalence: {{ current_prevalence_p }}%</p>
                                 </div>
                             </div>
-                            
-                            {# Seasonal Timeline #}
+
+                            <!-- Seasonal Timeline -->
                             <div class="seasonal-timeline mb-3">
-                                <div class="timeline-header d-flex justify-content-between mb-1">
-                                    <span class="small">Jan</span>
-                                    <span class="small">Feb</span>
-                                    <span class="small">Mar</span>
-                                    <span class="small">Apr</span>
-                                    <span class="small">May</span>
-                                    <span class="small">Jun</span>
-                                    <span class="small">Jul</span>
-                                    <span class="small">Aug</span>
-                                    <span class="small">Sep</span>
-                                    <span class="small">Oct</span>
-                                    <span class="small">Nov</span>
-                                    <span class="small">Dec</span>
+                                <div class="timeline-header mb-1">
+                                    <span>Jan</span>
+                                    <span>Feb</span>
+                                    <span>Mar</span>
+                                    <span>Apr</span>
+                                    <span>May</span>
+                                    <span>Jun</span>
+                                    <span>Jul</span>
+                                    <span>Aug</span>
+                                    <span>Sep</span>
+                                    <span>Oct</span>
+                                    <span>Nov</span>
+                                    <span>Dec</span>
                                 </div>
                                 <div class="timeline-bars">
                                     {% for month_num in "123456789101112" %}
                                         {% if forloop.counter == month_used_for_calc %}
-                                            <div class="timeline-month current" 
-                                                data-bs-toggle="tooltip" 
-                                                data-bs-placement="top" 
+                                            <div class="timeline-month current"
+                                                data-bs-toggle="tooltip"
+                                                data-bs-placement="top"
                                                 title="{{ current_stage }} (Current Month)">
                                             </div>
                                         {% else %}
@@ -122,8 +621,8 @@
                                     {% endfor %}
                                 </div>
                             </div>
-                            
-                            {# Pest and Disease Information #}
+
+                            <!-- Pest and Disease Information -->
                             <div class="row g-3 mt-1">
                                 {% if current_pests %}
                                 <div class="col-md-6">
@@ -134,9 +633,9 @@
                                             <li class="mb-1">
                                                 <strong>{{ pest.name }}</strong>
                                                 {% if pest.description %}
-                                                <button class="btn btn-sm btn-link text-danger p-0 ms-1" 
-                                                        data-bs-toggle="tooltip" 
-                                                        data-bs-placement="top" 
+                                                <button class="btn btn-sm btn-link text-danger p-0 ms-1"
+                                                        data-bs-toggle="tooltip"
+                                                        data-bs-placement="top"
                                                         title="{{ pest.description }}">
                                                     <i class="bi bi-info-circle-fill"></i>
                                                 </button>
@@ -147,7 +646,7 @@
                                     </div>
                                 </div>
                                 {% endif %}
-                                
+
                                 {% if current_diseases %}
                                 <div class="col-md-6">
                                     <div class="border rounded p-2 h-100">
@@ -157,9 +656,9 @@
                                             <li class="mb-1">
                                                 <strong>{{ disease.name }}</strong>
                                                 {% if disease.description %}
-                                                <button class="btn btn-sm btn-link text-warning p-0 ms-1" 
-                                                        data-bs-toggle="tooltip" 
-                                                        data-bs-placement="top" 
+                                                <button class="btn btn-sm btn-link text-warning p-0 ms-1"
+                                                        data-bs-toggle="tooltip"
+                                                        data-bs-placement="top"
                                                         title="{{ disease.description }}">
                                                     <i class="bi bi-info-circle-fill"></i>
                                                 </button>
@@ -180,36 +679,34 @@
                         </div>
                     </div>
                 </div>
-                
-                <form method="get" action="{% url 'core:calculator' %}" novalidate>
-                    {# Removed csrf_token as it's a GET request #}
 
-                    {# Farm Selection #}
+                <form method="get" action="{% url 'core:calculator' %}" novalidate>
+                    <!-- Farm Selection -->
                     <div class="mb-3">
                         <label for="{{ form.farm.id_for_label }}" class="form-label fw-bold">
                             {{ form.farm.label }}
-                            <i class="bi bi-info-circle-fill text-info ms-1" 
-                               data-bs-toggle="tooltip" 
-                               data-bs-placement="top" 
+                            <i class="bi bi-info-circle-fill text-info ms-1"
+                               data-bs-toggle="tooltip"
+                               data-bs-placement="top"
                                title="The farm for which you're calculating the surveillance sample size. Total plant population from this farm will be used in the calculation."></i>
                         </label>
                         {{ form.farm }}
                         {% if form.farm.errors %}<div class="text-danger small mt-1">{{ form.farm.errors|striptags }}</div>{% endif %}
                     </div>
 
-                    {# Confidence Level #}
+                    <!-- Confidence Level -->
                     <div class="mb-3">
                         <label for="{{ form.confidence_level.id_for_label }}" class="form-label fw-bold">
                             {{ form.confidence_level.label }}
-                            <i class="bi bi-info-circle-fill text-info ms-1" 
-                               data-bs-toggle="tooltip" 
-                               data-bs-placement="top" 
+                            <i class="bi bi-info-circle-fill text-info ms-1"
+                               data-bs-toggle="tooltip"
+                               data-bs-placement="top"
                                title="How confident you want to be that your surveillance will detect pests/diseases if present above the detection threshold. Higher confidence means larger sample sizes but more reliable results."></i>
                         </label>
                         {{ form.confidence_level }}
                         {% if form.confidence_level.errors %}<div class="text-danger small mt-1">{{ form.confidence_level.errors|striptags }}</div>{% endif %}
                         <div class="mt-2 small text-secondary">
-                            <i class="bi bi-shield-check me-1"></i> <strong>Impact on reliability:</strong> 
+                            <i class="bi bi-shield-check me-1"></i> <strong>Impact on reliability:</strong>
                             <ul class="mt-1 mb-0 ps-3">
                                 <li><strong>90%</strong>: Basic level of confidence, suitable for routine monitoring</li>
                                 <li><strong>95%</strong>: Standard level, recommended for most surveillance activities</li>
@@ -218,54 +715,55 @@
                         </div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary w-100">
+                    <button type="submit" class="btn btn-primary w-100 py-2 btn-calculate">
                         <i class="bi bi-calculator me-1"></i> Calculate
                     </button>
                 </form>
 
-                {# --- DEBUG: Manual Month Override --- #}
+                <!-- DEBUG: Manual Month Override -->
                 <div class="mt-4 pt-3 border-top border-warning">
-                    <small class="text-muted d-block mb-1"><i class="bi bi-bug-fill text-warning me-1"></i><strong>Debug Tool:</strong> Override Month</small>
+                    <small class="text-muted d-block mb-1">
+                        <i class="bi bi-bug-fill text-warning me-1"></i>
+                        <strong>Debug Tool:</strong> Override Month
+                    </small>
                     <form method="get" action="{% url 'core:calculator' %}" class="d-flex align-items-center">
-                        {# Pass existing parameters #}
+                        <!-- Pass existing parameters -->
                         {% if form.farm.value %}
                             <input type="hidden" name="farm" value="{{ form.farm.value }}">
                         {% endif %}
                         {% if form.confidence_level.value %}
                             <input type="hidden" name="confidence_level" value="{{ form.confidence_level.value }}">
                         {% endif %}
-                        
+
                         <label for="debug_month_input" class="form-label small me-2 mb-0">Month (1-12):</label>
-                        <input type="number" id="debug_month_input" name="debug_month" 
-                               min="1" max="12" step="1" 
-                               class="form-control form-control-sm me-2" 
+                        <input type="number" id="debug_month_input" name="debug_month"
+                               min="1" max="12" step="1"
+                               class="form-control form-control-sm me-2"
                                style="width: 70px;"
-                               value="{{ request.GET.debug_month }}"> 
+                               value="{{ request.GET.debug_month }}">
                         <button type="submit" class="btn btn-warning btn-sm">Apply Debug Month</button>
                     </form>
                     <small class="text-muted d-block mt-1">Leave blank to use current system month.</small>
                 </div>
-                {# --- END DEBUG --- #}
-
             </div>
         </div>
     </div>
 
-    {# Right Side: Results #}
+    <!-- Right Side: Results -->
     <div class="col-md-7">
-        <div class="card shadow-sm">
-            <div class="card-header bg-success text-white">
+        <div class="card calculator-card shadow">
+            <div class="card-header bg-success bg-gradient text-white">
                 <h5 class="mb-0">Calculation Results</h5>
             </div>
             <div class="card-body">
                 {% if form_submitted and calculation_results and not calculation_results.error %}
-                    {# Display Calculation Parameters #}
+                    <!-- Display Calculation Parameters -->
                     <div class="mb-3 pb-2 border-bottom">
                         <h6 class="mb-1">Calculation Parameters:</h6>
                         <ul class="list-unstyled small text-muted mb-0">
                             <li><i class="bi bi-geo-alt-fill me-1 text-secondary"></i>Farm: <strong>{{ selected_farm.name }}</strong> ({{ calculation_results.N }} plants)</li>
                             <li>
-                                <i class="bi bi-calendar-check-fill me-1 text-secondary"></i>Stage (Month {{ month_used_for_calc }}): 
+                                <i class="bi bi-calendar-check-fill me-1 text-secondary"></i>Stage (Month {{ month_used_for_calc }}):
                                 <strong>{{ current_stage }}</strong> ({{ current_prevalence_p }}% prevalence)
                                 {% if request.GET.debug_month %}
                                     <span class="badge bg-warning text-dark ms-1">Debug Month</span>
@@ -275,24 +773,24 @@
                         </ul>
                     </div>
 
-                    {# Display Main Result #}
-                    <div class="text-center mb-3">
+                    <!-- Display Main Result -->
+                    <div class="text-center mb-3 result-highlight">
                         <p class="fs-5 mb-0 text-muted">Recommended plants to survey:</p>
                         <p class="display-4 fw-bold text-success mb-1">{{ calculation_results.required_plants_to_survey }}</p>
                     </div>
-                    
-                    {# Display Percentage and Progress Bar #}
+
+                    <!-- Display Percentage and Progress Bar -->
                     {% if calculation_results.percentage_of_total is not None %}
                     <div class="progress mb-1 mx-auto" style="height: 10px; max-width: 300px;">
-                        <div class="progress-bar bg-success" role="progressbar" 
-                             style="width: {{ calculation_results.percentage_of_total }}%;" 
-                             aria-valuenow="{{ calculation_results.percentage_of_total }}" 
+                        <div class="progress-bar bg-success" role="progressbar"
+                             style="width: {{ calculation_results.percentage_of_total }}%;"
+                             aria-valuenow="{{ calculation_results.percentage_of_total }}"
                              aria-valuemin="0" aria-valuemax="100"></div>
                     </div>
-                    <p class="text-center text-muted small mb-3">({{ calculation_results.percentage_of_total|floatformat:1 }}% of total)</p>
+                    <p class="text-center text-muted small mb-3">({{ calculation_results.percentage_of_total|floatformat:1 }}% of total plants)</p>
                     {% endif %}
-                    
-                    {# Display Survey Frequency Badge #}
+
+                    <!-- Display Survey Frequency Badge -->
                     {% if calculation_results.survey_frequency %}
                     <div class="text-center mb-3">
                         <span class="badge bg-info-subtle text-info-emphasis p-2 fs-6 border border-info-subtle">
@@ -300,14 +798,18 @@
                         </span>
                     </div>
                     {% endif %}
-                    
-                    {# Link to Farm Detail #}
-                    <div class="text-center border-top pt-3 mt-3">
-                        <a href="{% url 'core:farm_detail' farm_id=selected_farm.id %}" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-eye"></i> View Farm Details & Recommendations
-                        </a>
-                    </div>
 
+                    <!-- Link to Farm Detail -->
+                    <div class="text-center border-top pt-3 mt-3">
+                        <div class="btn-group">
+                            <a href="{% url 'core:start_survey_session' selected_farm.id %}" class="btn btn-primary">
+                                <i class="bi bi-play-circle me-1"></i> Start Survey Session
+                            </a>
+                            <a href="{% url 'core:farm_detail' farm_id=selected_farm.id %}" class="btn btn-outline-primary">
+                                <i class="bi bi-eye"></i> View Farm Details
+                            </a>
+                        </div>
+                    </div>
                 {% elif form_submitted and calculation_results.error %}
                     <div class="alert alert-danger">
                         <h5 class="alert-heading"><i class="bi bi-exclamation-triangle-fill me-2"></i>Calculation Error</h5>
@@ -315,11 +817,16 @@
                         <p class="mb-0">Please check the farm details (total plants must be positive) and try again.</p>
                     </div>
                 {% else %}
-                    <p class="text-muted text-center pt-3">Select a farm and confidence level to calculate the required sample size.</p>
+                    <div class="text-center py-4">
+                        <i class="bi bi-calculator display-1 text-muted mb-3"></i>
+                        <h5>No Calculation Results Yet</h5>
+                        <p class="text-muted mb-4">Select a farm and confidence level to calculate the required sample size.</p>
+                        <i class="bi bi-arrow-left text-primary"></i> Start by filling out the form on the left
+                    </div>
                 {% endif %}
-                
-                {# Methodology Explanation #}
-                <div class="card border-secondary mt-3">
+
+                <!-- Methodology Explanation -->
+                <div class="card border-secondary mt-4">
                     <div class="card-header bg-light d-flex justify-content-between align-items-center"
                          role="button" data-bs-toggle="collapse" data-bs-target="#methodologyCollapse"
                          aria-expanded="false" aria-controls="methodologyCollapse">
@@ -329,7 +836,7 @@
                     <div class="collapse" id="methodologyCollapse">
                         <div class="card-body">
                             <p class="small text-muted mb-2">This calculator uses statistical sampling methods designed specifically for early pest and disease detection in mango orchards.</p>
-                            
+
                             <h6 class="mt-3 mb-2">How It Works</h6>
                             <ul class="small text-muted">
                                 <li><strong>Population Size:</strong> Total number of plants in your farm</li>
@@ -337,7 +844,7 @@
                                 <li><strong>Confidence Level:</strong> How certain you want to be of detecting issues if present</li>
                                 <li><strong>Sample Size:</strong> Calculated using hypergeometric distribution for finite populations</li>
                             </ul>
-                            
+
                             <div class="alert alert-info small mt-3 mb-0">
                                 <i class="bi bi-info-circle-fill me-1"></i>
                                 The calculations adapt to different seasons, as pest and disease prevalence varies throughout the year. The system automatically detects the current season to provide optimal sampling recommendations.
@@ -345,8 +852,8 @@
                         </div>
                     </div>
                 </div>
-                
-                {# Recommendation Explanations #}
+
+                <!-- Recommendation Explanations -->
                 {% if form_submitted and calculation_results and not calculation_results.error %}
                 <div class="card border-success mt-3">
                     <div class="card-header bg-light d-flex justify-content-between align-items-center"
@@ -358,7 +865,7 @@
                     <div class="collapse" id="resultExplanationCollapse">
                         <div class="card-body">
                             <p class="small text-muted mb-3">Your recommended sample size of <strong>{{ calculation_results.required_plants_to_survey }}</strong> plants is calculated based on:</p>
-                            
+
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="border rounded p-3 mb-3">
@@ -383,7 +890,7 @@
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="alert alert-success small mt-2 mb-0">
                                 <i class="bi bi-lightbulb-fill me-1"></i>
                                 <strong>Pro Tip:</strong> For the most effective surveillance, concentrate on examining the plant parts most likely to show symptoms during the current {{ current_stage }} stage.
@@ -400,14 +907,14 @@
 
 {% block extra_js %}
 <script>
-    // Initialize tooltips and collapse functionality
+    // Initialize tooltips, collapse functionality, and mobile tab handling
     document.addEventListener('DOMContentLoaded', function() {
         // Initialize tooltips
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.forEach(function(tooltipTriggerEl) {
             new bootstrap.Tooltip(tooltipTriggerEl);
         });
-        
+
         // Set up event listeners for collapse state changes
         document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function(element) {
             element.addEventListener('click', function() {
@@ -416,11 +923,77 @@
                 this.setAttribute('aria-expanded', !expanded);
             });
         });
-        
+
         // Add cursor: pointer to make entire headers look clickable
         document.querySelectorAll('.card-header[data-bs-toggle="collapse"]').forEach(function(header) {
             header.style.cursor = 'pointer';
         });
+
+        // Mobile tab navigation helpers
+        const mobileRetryBtn = document.getElementById('mobileRetryBtn');
+        const mobileGoToFormBtn = document.getElementById('mobileGoToFormBtn');
+        const formTab = document.getElementById('calculator-form-tab');
+
+        // Event listeners for mobile tab switching buttons
+        if (mobileRetryBtn && formTab) {
+            mobileRetryBtn.addEventListener('click', function() {
+                formTab.click(); // Programmatically click the form tab
+            });
+        }
+
+        if (mobileGoToFormBtn && formTab) {
+            mobileGoToFormBtn.addEventListener('click', function() {
+                formTab.click(); // Programmatically click the form tab
+            });
+        }
+
+        // Update progress indicator when form values change
+        const farmSelect = document.getElementById('id_farm');
+        const confidenceSelect = document.getElementById('id_confidence_level');
+        const progressBar = document.getElementById('farmFormProgress');
+
+        function updateProgressIndicator() {
+            if (!progressBar) return;
+
+            let progress = 0;
+            let steps = 2; // Two form fields to fill
+
+            if (farmSelect && farmSelect.value) {
+                progress += 1;
+            }
+
+            if (confidenceSelect && confidenceSelect.value) {
+                progress += 1;
+            }
+
+            // Calculate percentage
+            const percentage = (progress / steps) * 100;
+
+            // Update progress bar
+            progressBar.style.width = percentage + '%';
+            progressBar.setAttribute('aria-valuenow', percentage);
+
+            // Add visual indication when form is complete
+            if (percentage === 100) {
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-success');
+            } else {
+                progressBar.classList.remove('bg-success');
+                progressBar.classList.add('bg-primary');
+            }
+        }
+
+        // Add change listeners to form elements
+        if (farmSelect) {
+            farmSelect.addEventListener('change', updateProgressIndicator);
+        }
+
+        if (confidenceSelect) {
+            confidenceSelect.addEventListener('change', updateProgressIndicator);
+        }
+
+        // Run on initial load
+        updateProgressIndicator();
     });
 </script>
 {% endblock %}

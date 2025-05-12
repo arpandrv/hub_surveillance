@@ -7,19 +7,39 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-lg-8 col-md-10">
-        <div class="card shadow-sm mb-4">
-            <div class="card-header text-white" style="background-color: #0d6efd;">
-                <h4 class="mb-0">{% if farm %}Edit Farm{% else %}Create Farm{% endif %}</h4>
+        <div class="card shadow mb-4">
+            <div class="card-header text-white bg-gradient d-flex justify-content-between align-items-center" style="background-color: #0d6efd;">
+                <h4 class="mb-0 text-center text-md-start">{% if farm %}Edit Farm{% else %}Create Farm{% endif %}</h4>
+                <div class="d-flex d-md-none align-items-center">
+                    <button class="btn btn-sm btn-light" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#farmFormHelp" aria-expanded="false">
+                        <i class="bi bi-info-circle"></i>
+                    </button>
+                </div>
             </div>
+
+            <!-- Mobile Collapsible Help Panel -->
+            <div class="collapse" id="farmFormHelp">
+                <div class="card-body bg-light border-bottom">
+                    <h6 class="fw-bold mb-2">Farm Registration Tips:</h6>
+                    <ul class="mb-0 ps-3 small">
+                        <li class="mb-1">Set an easily recognizable farm name</li>
+                        <li class="mb-1">Select your region for proper pest recommendations</li>
+                        <li class="mb-1">Enter accurate size and plant count for correct surveillance calculations</li>
+                        <li class="mb-1">You can map farm boundaries later using GPS</li>
+                    </ul>
+                </div>
+            </div>
+
             <div class="card-body">
                 <form method="post" novalidate id="farm-form">
                     {% csrf_token %}
 
-                    {# Render hidden fields from the form #}
+                    <!-- Hidden Fields -->
                     {{ form.geoscape_address_id }}
                     {{ form.formatted_address }}
 
-                    {# Display non-field errors if any (moved here from below name) #}
+                    <!-- Non-field Errors -->
                     {% if form.non_field_errors %}
                     <div class="alert alert-danger small">
                         {% for error in form.non_field_errors %}
@@ -28,109 +48,183 @@
                     </div>
                     {% endif %}
 
-                    {# Farm Name #}
-                    <div class="mb-3">
-                        <label for="{{ form.name.id_for_label }}" class="form-label fw-bold">{{ form.name.label }}:</label>
-                        <input type="text" name="{{ form.name.name }}" id="{{ form.name.id_for_label }}" 
-                               class="form-control {% if form.name.errors %}is-invalid{% endif %}" 
-                               value="{{ form.name.value|default:'' }}" required>
-                        {% if form.name.errors %}<div class="invalid-feedback">{{ form.name.errors|striptags }}</div>{% endif %}
-                    </div>
-
-                    {# Region #}
-                    <div class="mb-3">
-                        <label for="{{ form.region.id_for_label }}" class="form-label fw-bold">{{ form.region.label }}:</label>
-                        <select name="{{ form.region.name }}" id="{{ form.region.id_for_label }}" 
-                                class="form-select {% if form.region.errors %}is-invalid{% endif %}" required>
-                            {% for value, text in form.region.field.choices %}
-                            <option value="{{ value }}" {% if form.region.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
-                            {% endfor %}
-                        </select>
-                        <div class="form-text">Only regions relevant to Northern Australia are shown.</div>
-                        {% if form.region.errors %}<div class="invalid-feedback">{{ form.region.errors|striptags }}</div>{% endif %}
-                    </div>
-
-                    {# Address Toggle Checkbox - Rendered from form #}
-                    <div class="mb-3 form-check">
-                        {{ form.has_exact_address }} {# Renders the <input type="checkbox" ...> #}
-                        <label for="{{ form.has_exact_address.id_for_label }}" class="form-check-label fw-bold">
-                            {{ form.has_exact_address.label }}
-                        </label>
-                         {% if form.has_exact_address.errors %}<div class="invalid-feedback d-block">{{ form.has_exact_address.errors|striptags }}</div>{% endif %}
-                    </div>
-
-                    {# Exact Address Section #}
-                    <div class="mb-3" id="exact-address-section">
-                        <h5 class="text-primary">Street Address</h5>
-                        <label for="address_search_input" class="form-label fw-bold">Enter Street Address:</label>
-                        <input type="text" id="address_search_input" class="form-control" 
-                               placeholder="Start typing address (e.g., Darwin Airport)" autocomplete="off"
-                               value="{{ form.instance.formatted_address|default:'' }}">
-
-                        <div id="suggestions_list" class="list-group mt-1" style="max-height: 200px; overflow-y: auto; position: absolute; z-index: 1000; width: 94%;">
+                    <!-- Progress Indicator for Mobile -->
+                    <div class="d-block d-md-none mb-3">
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-primary" role="progressbar" style="width: 0%;"
+                                aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="farmFormProgress"></div>
                         </div>
-
-                        <div class="form-text">Type at least 3 characters to search. Make sure region is selected above.</div>
-                        
-                        <!-- Direct Test Button -->
-                        <button type="button" id="api_test_button" class="btn btn-sm btn-info mt-2">Test Address API</button>
-                        <a href="{% url 'core:api_address_suggestions' %}?debug=1" target="_blank" class="btn btn-sm btn-outline-secondary mt-2 ms-2">API Debug Page</a>
-                    </div>
-
-                    {# General Location Section #}
-                    <div id="general-location-section" class="mb-3">
-                        <div class="alert alert-secondary small" role="alert">
-                            <i class="bi bi-info-circle me-1"></i>
-                            No problem if you don't have an exact address! You can describe the general location below.
-                        </div>
-                        {# ADDED WARNING for manual mapping #}
-                        <div class="alert alert-warning small" role="alert">
-                            <i class="bi bi-exclamation-triangle me-1"></i>
-                            <strong>Manual Boundary Mapping:</strong> If you plan to map the boundary later using GPS, please ensure you walk the perimeter and record the corners strictly <strong>in order</strong> (either clockwise or counter-clockwise). Recording corners out of sequence will result in an incorrect map.
+                        <div class="d-flex justify-content-between mt-1">
+                            <span class="small text-muted">Farm Info</span>
+                            <span class="small text-muted">Details</span>
+                            <span class="small text-muted">Complete</span>
                         </div>
                     </div>
 
-                    {# Size and Stocking Rate Section #}
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label for="{{ form.size_hectares.id_for_label }}" class="form-label fw-bold">{{ form.size_hectares.label }}:</label>
-                            <input type="number" name="{{ form.size_hectares.name }}" id="{{ form.size_hectares.id_for_label }}" 
-                                   class="form-control {% if form.size_hectares.errors %}is-invalid{% endif %}" 
-                                   value="{{ form.size_hectares.value|default:'' }}" step="any">
-                            <div class="form-text">Total farm size in hectares.</div>
-                            {% if form.size_hectares.errors %}<div class="invalid-feedback">{{ form.size_hectares.errors|striptags }}</div>{% endif %}
-                        </div>
-                        <div class="col-md-6">
-                            <label for="{{ form.stocking_rate.id_for_label }}" class="form-label fw-bold">{{ form.stocking_rate.label }}:</label>
-                            <input type="number" name="{{ form.stocking_rate.name }}" id="{{ form.stocking_rate.id_for_label }}" 
-                                   class="form-control {% if form.stocking_rate.errors %}is-invalid{% endif %}" 
-                                   value="{{ form.stocking_rate.value|default:'' }}" step="1">
-                            <div class="form-text">Number of plants per hectare.</div>
-                            {% if form.stocking_rate.errors %}<div class="invalid-feedback">{{ form.stocking_rate.errors|striptags }}</div>{% endif %}
-                        </div>
-                    </div>
+                    <!-- Farm Info Section -->
+                    <div class="card bg-light mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title text-primary mb-3">Farm Information</h5>
 
-                    {# Plant Types Display Section #}
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Plant Types:</label>
-                        <div class="form-control bg-light">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="" id="mangoCheck" checked disabled>
-                                <label class="form-check-label" for="mangoCheck">Mango</label>
+                            <!-- Farm Name -->
+                            <div class="mb-3">
+                                <label for="{{ form.name.id_for_label }}" class="form-label fw-bold">
+                                    <i class="bi bi-house-door me-1"></i> {{ form.name.label }}:
+                                </label>
+                                <input type="text" name="{{ form.name.name }}" id="{{ form.name.id_for_label }}"
+                                    class="form-control form-control-lg {% if form.name.errors %}is-invalid{% endif %}"
+                                    value="{{ form.name.value|default:'' }}" required autocomplete="off">
+                                {% if form.name.errors %}
+                                    <div class="invalid-feedback">{{ form.name.errors|striptags }}</div>
+                                {% else %}
+                                    <div class="form-text">Choose a unique, recognizable name for your farm</div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Region -->
+                            <div class="mb-3">
+                                <label for="{{ form.region.id_for_label }}" class="form-label fw-bold">
+                                    <i class="bi bi-geo-alt me-1"></i> {{ form.region.label }}:
+                                </label>
+                                <select name="{{ form.region.name }}" id="{{ form.region.id_for_label }}"
+                                        class="form-select {% if form.region.errors %}is-invalid{% endif %}" required>
+                                    {% for value, text in form.region.field.choices %}
+                                    <option value="{{ value }}" {% if form.region.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ text }}</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">Only regions relevant to Northern Australia are shown</div>
+                                {% if form.region.errors %}
+                                    <div class="invalid-feedback">{{ form.region.errors|striptags }}</div>
+                                {% endif %}
                             </div>
                         </div>
-                        <div class="form-text">Currently only Mango surveillance is supported.</div>
                     </div>
 
-                    {# Form Buttons #}
-                    <hr class="my-4">
-                    <div class="d-flex justify-content-end">
+                    <!-- Location Section -->
+                    <div class="card bg-light mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title text-primary mb-3">Location Details</h5>
+
+                            <!-- Address Toggle -->
+                            <div class="form-check form-switch mb-3">
+                                {{ form.has_exact_address }}
+                                <label for="{{ form.has_exact_address.id_for_label }}" class="form-check-label fw-bold">
+                                    {{ form.has_exact_address.label }}
+                                </label>
+                                {% if form.has_exact_address.errors %}
+                                    <div class="invalid-feedback d-block">{{ form.has_exact_address.errors|striptags }}</div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Exact Address Section -->
+                            <div class="mb-4 px-2 py-3 border rounded bg-white shadow-sm" id="exact-address-section">
+                                <label for="address_search_input" class="form-label fw-bold">
+                                    <i class="bi bi-search me-1"></i> Search for Address:
+                                </label>
+                                <input type="text" id="address_search_input" class="form-control"
+                                    placeholder="Start typing address (e.g., Darwin Airport)" autocomplete="off"
+                                    value="{{ form.instance.formatted_address|default:'' }}">
+
+                                <div id="suggestions_list" class="list-group mt-1 shadow-sm"
+                                    style="max-height: 200px; overflow-y: auto; position: absolute; z-index: 1000; width: calc(100% - 3rem); left: 1.5rem;">
+                                </div>
+
+                                <div class="form-text">Type at least 3 characters to search. Make sure region is selected above.</div>
+
+                                <div class="d-flex flex-wrap gap-2 mt-2">
+                                    <button type="button" id="api_test_button" class="btn btn-sm btn-info">
+                                        <i class="bi bi-check-circle me-1"></i> Test Address API
+                                    </button>
+                                    <a href="{% url 'core:api_address_suggestions' %}?debug=1" target="_blank" class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-bug me-1"></i> API Debug
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- General Location Section -->
+                            <div id="general-location-section" class="mb-3">
+                                <div class="alert alert-secondary" role="alert">
+                                    <h6 class="alert-heading"><i class="bi bi-info-circle me-1"></i> No exact address?</h6>
+                                    <p class="mb-0 small">No problem! You can describe the general location in the farm name and set up GPS mapping later.</p>
+                                </div>
+
+                                <div class="alert alert-warning" role="alert">
+                                    <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-1"></i> Manual Boundary Mapping</h6>
+                                    <p class="mb-0 small">If mapping the boundary later using GPS, please walk the perimeter and record corners <strong>in sequence</strong> (clockwise or counter-clockwise) for accurate mapping.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Farm Details Section -->
+                    <div class="card bg-light mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title text-primary mb-3">Farm Details</h5>
+
+                            <!-- Size and Stocking Rate Section -->
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="{{ form.size_hectares.id_for_label }}" class="form-label fw-bold">
+                                        <i class="bi bi-rulers me-1"></i> {{ form.size_hectares.label }}:
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="number" name="{{ form.size_hectares.name }}" id="{{ form.size_hectares.id_for_label }}"
+                                            class="form-control {% if form.size_hectares.errors %}is-invalid{% endif %}"
+                                            value="{{ form.size_hectares.value|default:'' }}" step="any" min="0">
+                                        <span class="input-group-text">hectares</span>
+                                    </div>
+                                    <div class="form-text">Total area under cultivation</div>
+                                    {% if form.size_hectares.errors %}
+                                        <div class="invalid-feedback">{{ form.size_hectares.errors|striptags }}</div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label for="{{ form.stocking_rate.id_for_label }}" class="form-label fw-bold">
+                                        <i class="bi bi-tree me-1"></i> {{ form.stocking_rate.label }}:
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="number" name="{{ form.stocking_rate.name }}" id="{{ form.stocking_rate.id_for_label }}"
+                                            class="form-control {% if form.stocking_rate.errors %}is-invalid{% endif %}"
+                                            value="{{ form.stocking_rate.value|default:'' }}" step="1" min="0">
+                                        <span class="input-group-text">plants/ha</span>
+                                    </div>
+                                    <div class="form-text">Number of plants per hectare</div>
+                                    {% if form.stocking_rate.errors %}
+                                        <div class="invalid-feedback">{{ form.stocking_rate.errors|striptags }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Plant Types Display Section -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">
+                                    <i class="bi bi-flower1 me-1"></i> Plant Types:
+                                </label>
+                                <div class="card">
+                                    <div class="card-body py-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="" id="mangoCheck" checked disabled>
+                                            <label class="form-check-label" for="mangoCheck">Mango</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-text">Currently only Mango surveillance is supported</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Form Buttons -->
+                    <div class="d-flex flex-column flex-md-row justify-content-end gap-2">
                         {% if farm %}
-                            <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                            <a href="{% url 'core:farm_detail' farm.id %}" class="btn btn-outline-secondary order-md-1 order-2">Cancel</a>
                         {% else %}
-                            <a href="{% url 'core:myfarms' %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                            <a href="{% url 'core:myfarms' %}" class="btn btn-outline-secondary order-md-1 order-2">Cancel</a>
                         {% endif %}
-                        <button type="submit" class="btn btn-primary">{% if farm %}Save Farm{% else %}Save Farm{% endif %}</button> 
+                        <button type="submit" class="btn btn-primary btn-lg px-4 order-md-2 order-1">
+                            <i class="bi bi-check-circle me-2"></i>
+                            {% if farm %}Update Farm{% else %}Save Farm{% endif %}
+                        </button>
                     </div>
                 </form>
             </div>
@@ -142,8 +236,8 @@
 {% block extra_js %}
 <script type="text/javascript">
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM content loaded - initializing address functionality');
-    
+    console.log('DOM content loaded - initializing farm form');
+
     // Core elements
     const addressCheckbox = document.getElementById('id_has_exact_address');
     const addressSection = document.getElementById('exact-address-section');
@@ -154,61 +248,65 @@ document.addEventListener('DOMContentLoaded', function() {
     const idInput = document.getElementById('id_geoscape_address_id');
     const formattedInput = document.getElementById('id_formatted_address');
     const testButton = document.getElementById('api_test_button');
-    
+    const farmNameInput = document.getElementById('{{ form.name.id_for_label }}');
+    const sizeInput = document.getElementById('{{ form.size_hectares.id_for_label }}');
+    const stockingRateInput = document.getElementById('{{ form.stocking_rate.id_for_label }}');
+    const progressBar = document.getElementById('farmFormProgress');
+    const formSubmitBtn = document.querySelector('button[type="submit"]');
+
     // Function to toggle address sections
     function toggleAddressSections() {
         console.log('Toggle called - checkbox checked:', addressCheckbox ? addressCheckbox.checked : 'checkbox not found');
-        
+
         if (addressCheckbox && addressCheckbox.checked) {
             console.log('Setting address section visible');
-            if (addressSection) addressSection.style.cssText = "display: block !important;";
-            if (generalSection) generalSection.style.cssText = "display: none !important;";
+            if (addressSection) addressSection.style.display = "block";
+            if (generalSection) generalSection.style.display = "none";
         } else {
             console.log('Setting address section hidden');
-            if (addressSection) addressSection.style.cssText = "display: none !important;";
-            if (generalSection) generalSection.style.cssText = "display: block !important;";
+            if (addressSection) addressSection.style.display = "none";
+            if (generalSection) generalSection.style.display = "block";
             // Clear address values when hiding section
             if (addressInput) addressInput.value = '';
             if (idInput) idInput.value = '';
             if (formattedInput) formattedInput.value = '';
             if (suggestionsList) suggestionsList.innerHTML = '';
         }
-        
-        // Log actual display values
-        if (addressSection) console.log('Address section display:', window.getComputedStyle(addressSection).display);
-        if (generalSection) console.log('General section display:', window.getComputedStyle(generalSection).display);
+
+        // Update progress
+        updateFormProgress();
     }
-    
+
     // Function to search for addresses via API
     async function searchAddresses() {
         if (!addressInput || !suggestionsList || !regionSelect) return;
-        
+
         const query = addressInput.value.trim();
         const regionId = regionSelect.value;
-        
+
         // Clear previous suggestions
         suggestionsList.innerHTML = '';
-        
+
         // Don't search if query too short or no region selected
         if (query.length < 3 || !regionId) return;
-        
+
         // Show loading indicator
         suggestionsList.innerHTML = '<a class="list-group-item disabled">Searching...</a>';
-        
+
         try {
             // Make API call
             const url = `{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(query)}&region_id=${encodeURIComponent(regionId)}`;
             const response = await fetch(url);
-            
+
             if (!response.ok) {
                 throw new Error(`Error: ${response.status}`);
             }
-            
+
             const data = await response.json();
-            
+
             // Clear loading indicator
             suggestionsList.innerHTML = '';
-            
+
             if (data.error) {
                 // Show error message
                 suggestionsList.innerHTML = `<a class="list-group-item list-group-item-danger">${data.error}</a>`;
@@ -219,20 +317,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     item.href = '#';
                     item.className = 'list-group-item list-group-item-action';
                     item.textContent = suggestion.address;
-                    
+
                     // Add click handler
                     item.addEventListener('click', function(e) {
                         e.preventDefault();
-                        
+
                         // Set values
                         addressInput.value = suggestion.address;
                         idInput.value = suggestion.id;
                         formattedInput.value = suggestion.address;
-                        
+
                         // Clear suggestions
                         suggestionsList.innerHTML = '';
+
+                        // Update progress
+                        updateFormProgress();
                     });
-                    
+
                     suggestionsList.appendChild(item);
                 });
             } else {
@@ -244,21 +345,82 @@ document.addEventListener('DOMContentLoaded', function() {
             suggestionsList.innerHTML = '<a class="list-group-item list-group-item-danger">Error fetching suggestions</a>';
         }
     }
-    
+
+    // Function to update form progress bar (mobile)
+    function updateFormProgress() {
+        if (!progressBar) return;
+
+        let progress = 0;
+        let totalSteps = 5; // Farm name, region, address method, size, stocking rate
+
+        // Check farm name (25%)
+        if (farmNameInput && farmNameInput.value.trim()) {
+            progress += 1;
+        }
+
+        // Check region (25%)
+        if (regionSelect && regionSelect.value) {
+            progress += 1;
+        }
+
+        // Check address (20%)
+        if (addressCheckbox && addressCheckbox.checked) {
+            if (addressInput && addressInput.value.trim() && idInput && idInput.value.trim()) {
+                progress += 1;
+            }
+        } else {
+            progress += 1; // Not using exact address is OK
+        }
+
+        // Check size (15%)
+        if (sizeInput && sizeInput.value.trim() && !isNaN(parseFloat(sizeInput.value))) {
+            progress += 1;
+        }
+
+        // Check stocking rate (15%)
+        if (stockingRateInput && stockingRateInput.value.trim() && !isNaN(parseInt(stockingRateInput.value))) {
+            progress += 1;
+        }
+
+        // Calculate percentage
+        const percentage = Math.round((progress / totalSteps) * 100);
+
+        // Update progress bar
+        progressBar.style.width = percentage + '%';
+        progressBar.setAttribute('aria-valuenow', percentage);
+
+        // Visual indication when complete
+        if (percentage === 100) {
+            progressBar.classList.remove('bg-primary');
+            progressBar.classList.add('bg-success');
+            if (formSubmitBtn) {
+                formSubmitBtn.classList.add('animate__animated', 'animate__pulse');
+                formSubmitBtn.style.animationIterationCount = 'infinite';
+                formSubmitBtn.style.animationDuration = '2s';
+            }
+        } else {
+            progressBar.classList.remove('bg-success');
+            progressBar.classList.add('bg-primary');
+            if (formSubmitBtn) {
+                formSubmitBtn.classList.remove('animate__animated', 'animate__pulse');
+            }
+        }
+    }
+
     // Set up test button functionality
     if (testButton) {
         console.log('Found test button - adding click handler');
         testButton.addEventListener('click', function() {
             const testQuery = 'darwin';
             const regionId = regionSelect ? regionSelect.value : '1';
-            
+
             console.log(`Testing API with query=${testQuery}, region_id=${regionId}`);
-            
+
             // Show message
             if (suggestionsList) {
                 suggestionsList.innerHTML = '<a class="list-group-item list-group-item-info">Testing API...</a>';
             }
-            
+
             // Call API
             fetch(`{% url 'core:api_address_suggestions' %}?query=${encodeURIComponent(testQuery)}&region_id=${encodeURIComponent(regionId)}`)
                 .then(response => response.json())
@@ -269,13 +431,24 @@ document.addEventListener('DOMContentLoaded', function() {
                             suggestionsList.innerHTML = `<a class="list-group-item list-group-item-danger">${data.error}</a>`;
                         } else if (data.suggestions && data.suggestions.length > 0) {
                             suggestionsList.innerHTML = `<a class="list-group-item list-group-item-success">Found ${data.suggestions.length} suggestions</a>`;
-                            
+
                             // Add some examples
                             data.suggestions.slice(0, 3).forEach(suggestion => {
                                 const item = document.createElement('a');
                                 item.href = '#';
                                 item.className = 'list-group-item list-group-item-action';
                                 item.textContent = suggestion.address;
+
+                                // Add click handler for test results
+                                item.addEventListener('click', function(e) {
+                                    e.preventDefault();
+                                    addressInput.value = suggestion.address;
+                                    idInput.value = suggestion.id;
+                                    formattedInput.value = suggestion.address;
+                                    suggestionsList.innerHTML = '';
+                                    updateFormProgress();
+                                });
+
                                 suggestionsList.appendChild(item);
                             });
                         } else {
@@ -290,24 +463,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 });
         });
-    } else {
-        console.error('Test button not found!');
     }
-    
+
     // Set initial state based on checkbox
     if (addressCheckbox) {
         console.log('Initial checkbox state:', addressCheckbox.checked);
-        
+
         // Apply initial state
         setTimeout(function() {
             toggleAddressSections();
         }, 100);
-        
+
         // Update when checkbox changes
         addressCheckbox.addEventListener('change', function() {
             console.log('Checkbox changed to:', this.checked);
             toggleAddressSections();
-            
+
             // Focus address input when shown
             if (this.checked && addressInput) {
                 setTimeout(function() {
@@ -316,7 +487,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    
+
     // Search as user types (with debounce)
     if (addressInput) {
         let debounceTimer;
@@ -324,7 +495,7 @@ document.addEventListener('DOMContentLoaded', function() {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(searchAddresses, 500);
         });
-        
+
         // Also search when input gets focus if it has content
         addressInput.addEventListener('focus', function() {
             if (this.value.trim().length >= 3) {
@@ -332,23 +503,60 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    
+
     // Re-search when region changes if address has content
     if (regionSelect) {
         regionSelect.addEventListener('change', function() {
+            updateFormProgress();
             if (addressInput && addressInput.value.trim().length >= 3) {
                 searchAddresses();
             }
         });
     }
-    
+
+    // Update progress as user types in form fields
+    if (farmNameInput) {
+        farmNameInput.addEventListener('input', updateFormProgress);
+    }
+
+    if (sizeInput) {
+        sizeInput.addEventListener('input', updateFormProgress);
+    }
+
+    if (stockingRateInput) {
+        stockingRateInput.addEventListener('input', updateFormProgress);
+    }
+
     // Hide suggestions when clicking outside
     document.addEventListener('click', function(event) {
-        if (suggestionsList && !suggestionsList.contains(event.target) && 
+        if (suggestionsList && !suggestionsList.contains(event.target) &&
             addressInput && !addressInput.contains(event.target)) {
             suggestionsList.innerHTML = '';
         }
     });
+
+    // Initial progress calculation
+    updateFormProgress();
+
+    // Smooth scrolling for mobile section navigation
+    const cards = document.querySelectorAll('.card.bg-light');
+    if (cards.length) {
+        // Add smooth scroll behavior when fields receive focus
+        const allInputsAndSelects = document.querySelectorAll('input, select, textarea');
+        allInputsAndSelects.forEach(el => {
+            el.addEventListener('focus', function() {
+                // Find parent card
+                const parentCard = this.closest('.card.bg-light');
+                if (parentCard && window.innerWidth < 768) {
+                    // Smooth scroll to card with slight offset
+                    window.scrollTo({
+                        top: parentCard.offsetTop - 15,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    }
 });
 </script>
 {% endblock %}

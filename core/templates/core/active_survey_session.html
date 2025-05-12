@@ -12,14 +12,16 @@
   .observation-form-area {
     background-color: #f8f9fa;
     border: 1px solid #dee2e6;
-    border-radius: .375rem;
+    border-radius: .5rem;
     padding: 1.5rem;
     margin-bottom: 1.5rem;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
   }
+
   .progress-tracker {
     margin-bottom: 1.5rem;
   }
-  
+
   /* GPS Status Indicator */
   .status-indicator {
     width: 16px;
@@ -27,31 +29,31 @@
     border-radius: 50%;
     display: inline-block;
   }
-  
+
   .status-indicator.waiting {
     background-color: #ffc107;
     animation: pulse 2s infinite;
   }
-  
+
   .status-indicator.ready {
     background-color: #198754;
   }
-  
+
   .status-indicator.warning {
     background-color: #fd7e14;
   }
-  
+
   .status-indicator.error {
     background-color: #dc3545;
   }
-  
+
   /* Pulse animation for waiting status */
   @keyframes pulse {
     0% { opacity: 1; }
     50% { opacity: 0.4; }
     100% { opacity: 1; }
   }
-  
+
   /* Debug panel styling */
   #debug-log {
     font-family: monospace;
@@ -62,11 +64,137 @@
     padding: 8px;
     border-radius: 4px;
   }
+
+  /* Enhanced form styling */
+  .form-check-scrollable {
+    max-height: 150px;
+    overflow-y: auto;
+    border-radius: 0.375rem;
+  }
+
+  .form-check-scrollable label {
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0;
+    width: 100%;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .form-check-scrollable label:hover {
+    background-color: rgba(0,0,0,0.03);
+  }
+
+  /* Observation list enhancements */
+  #observation-list .list-group-item {
+    transition: all 0.2s ease;
+  }
+
+  #observation-list .list-group-item:hover {
+    background-color: rgba(0,0,0,0.02);
+  }
+
+  .badge {
+    font-weight: 500;
+    padding: 0.4rem 0.6rem;
+    margin-right: 0.25rem;
+    margin-bottom: 0.25rem;
+    border-radius: 50px;
+  }
+
+  /* Mobile optimizations */
+  @media (max-width: 767.98px) {
+    .observation-form-area {
+      padding: 1rem;
+      border-radius: 0.75rem;
+    }
+
+    .card {
+      margin-bottom: 1rem;
+    }
+
+    .card-body {
+      padding: 1rem;
+    }
+
+    /* Sticky header for mobile to keep important controls accessible */
+    .mobile-session-header {
+      position: sticky;
+      top: 56px; /* Match navbar height */
+      z-index: 100;
+      background-color: #fff;
+      padding: 0.5rem 0;
+      margin: -0.5rem 0 0.5rem;
+      border-bottom: 1px solid #dee2e6;
+    }
+
+    /* Touch-friendly checkboxes */
+    .form-check-label {
+      padding: 0.5rem 0;
+      font-size: 1rem;
+    }
+
+    .form-check-input {
+      width: 1.25rem;
+      height: 1.25rem;
+      margin-top: 0.2rem;
+    }
+
+    /* Finish button enhancements */
+    #finish-session-btn {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      z-index: 1000;
+      border-radius: 1.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 0.75rem 1.25rem;
+    }
+
+    /* Improved mobile form spacing */
+    .form-label {
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+
+    /* Better button spacing and size */
+    .btn {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.95rem;
+    }
+
+    #save-observation-btn {
+      padding: 0.75rem 1rem;
+      width: 100%;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Improve card display on mobile */
+    .card {
+      border-radius: 0.75rem;
+    }
+
+    /* Column layout for mobile */
+    .row .col-md-4, .row .col-md-8 {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+  }
 </style>
 {% endblock head_extra %}
 
 {% block content %}
-<div class="row">
+<!-- Mobile Session Header (visible only on small screens) -->
+<div class="d-md-none mobile-session-header">
+  <div class="d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">{{ farm.name }}</h5>
+    <span class="badge bg-warning text-dark">{{ session.get_status_display }}</span>
+  </div>
+  <div class="progress mt-2" role="progressbar" aria-label="Survey Progress" aria-valuenow="{{ completed_plants }}" aria-valuemin="0" aria-valuemax="{{ target_plants|default:0 }}">
+    <div class="progress-bar" style="width: {{ progress_percent }}%;">{{ completed_plants }}/{{ target_plants|default:0 }}</div>
+  </div>
+</div>
+
+<div class="row g-3">
 
   {# --- Left Column: Info & Progress --- #}
   <div class="col-md-4">
@@ -176,16 +304,16 @@
                 {% endif %}
 
                 <div class="mb-3">
-                    <label class="form-label">{{ form.pests_observed.label }}</label>
-                    <div class="form-check-scrollable border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                    <label class="form-label fw-bold">{{ form.pests_observed.label }}</label>
+                    <div class="form-check-scrollable border rounded p-2">
                         {{ form.pests_observed }}
                     </div>
                     {% for error in form.pests_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">{{ form.diseases_observed.label }}</label>
-                    <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                    <label class="form-label fw-bold">{{ form.diseases_observed.label }}</label>
+                    <div class="form-check-scrollable border rounded p-2">
                         {{ form.diseases_observed }}
                     </div>
                     {% for error in form.diseases_observed.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
@@ -222,7 +350,7 @@
                     </div>
                 </div>
 
-                <button type="submit" id="save-observation-btn" class="btn btn-success" disabled>
+                <button type="submit" id="save-observation-btn" class="btn btn-success btn-lg" disabled>
                      {# ADDED: Spinner (initially hidden) #}
                      <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="display: none;"></span>
                      <i class="bi bi-check-lg me-1"></i> 
@@ -247,7 +375,7 @@
         <button id="finish-session-btn" class="btn btn-lg btn-primary" disabled>
             <i class="bi bi-flag-fill me-1"></i> Finish Survey Session
         </button>
-        <small class="d-block text-muted">(Requires {{ target_plants|default:0 }} observations)</small>
+        <small class="d-none d-md-block text-muted">(Requires {{ target_plants|default:0 }} observations)</small>
     </div>
 
     {# List of Previous Observations #}

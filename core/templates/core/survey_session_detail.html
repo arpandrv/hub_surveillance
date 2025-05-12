@@ -8,225 +8,662 @@
 {# Add Leaflet CSS #}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 <style>
+  /* Observation cards */
   .observation-card {
     margin-bottom: 1rem;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(0,0,0,0.125);
   }
+
+  .observation-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+
   .observation-card img {
-    max-width: 100px; /* Limit thumbnail size */
-    height: auto;
+    max-width: 100%; /* Full width on mobile */
+    max-height: 150px; /* Limit height */
+    object-fit: cover; /* Cover the area */
+    border-radius: 4px;
+    cursor: pointer; /* Indicate clickable */
   }
-  /* Style for the map - Ensure dimensions and visibility */
+
+  @media (min-width: 768px) {
+    .observation-card img {
+      max-width: 120px; /* Specific width on desktop */
+      max-height: 120px;
+      object-fit: cover;
+    }
+  }
+
+  /* Style for the map */
   #observationMap {
-      display: block; /* Ensure it's not hidden */
-      height: 400px;  /* Explicit height */
-      width: 100%;    /* Explicit width */
-      border: 1px solid #ccc;
-      border-radius: .375rem;
-      margin-bottom: 1.5rem; 
+    display: block;
+    height: 300px; /* Smaller on mobile */
+    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: .5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
   }
+
+  @media (min-width: 768px) {
+    #observationMap {
+      height: 400px; /* Taller on desktop */
+      margin-bottom: 1.5rem;
+    }
+  }
+
   /* Gradient legend */
   .heatmap-legend {
-      position: relative;
-      height: 30px;
-      background: linear-gradient(to right, rgba(0,0,255,0.5), rgba(0,255,0,0.5), rgba(255,255,0,0.5), rgba(255,0,0,0.5));
-      margin-top: 10px;
-      border-radius: 3px;
+    position: relative;
+    height: 24px;
+    background: linear-gradient(to right, rgba(0,0,255,0.5), rgba(0,255,0,0.5), rgba(255,255,0,0.5), rgba(255,0,0,0.5));
+    margin-top: 10px;
+    border-radius: 4px;
+    box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
   }
+
   .heatmap-legend::before {
-      content: 'Low';
-      position: absolute;
-      left: 0;
-      bottom: -20px;
-      font-size: 12px;
+    content: 'Low';
+    position: absolute;
+    left: 0;
+    bottom: -20px;
+    font-size: 12px;
   }
+
   .heatmap-legend::after {
-      content: 'High';
-      position: absolute;
-      right: 0;
-      bottom: -20px;
-      font-size: 12px;
+    content: 'High';
+    position: absolute;
+    right: 0;
+    bottom: -20px;
+    font-size: 12px;
   }
+
   /* Enhanced layer control styling */
   .leaflet-control-layers {
-      border-radius: 8px !important;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
-      background-color: rgba(45, 45, 45, 0.85) !important;
-      color: white !important;
-      border: none !important;
-      padding: 8px 12px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+    background-color: rgba(45, 45, 45, 0.85) !important;
+    color: white !important;
+    border: none !important;
+    padding: 8px 12px !important;
   }
+
   .leaflet-control-layers-expanded {
-      width: auto !important;
-      min-width: 150px !important;
+    width: auto !important;
+    min-width: 150px !important;
   }
+
   .leaflet-control-layers-list {
-      margin-bottom: 0 !important;
+    margin-bottom: 0 !important;
   }
+
   .leaflet-control-layers-selector {
-      margin-right: 5px !important;
+    margin-right: 5px !important;
   }
+
   .leaflet-control-layers-overlays label {
-      display: block !important;
-      padding: 4px 6px !important;
-      margin: 0 !important;
-      border-radius: 4px !important;
-      transition: background-color 0.2s !important;
-      color: white !important;
+    display: block !important;
+    padding: 4px 6px !important;
+    margin: 0 !important;
+    border-radius: 4px !important;
+    transition: background-color 0.2s !important;
+    color: white !important;
   }
+
   .leaflet-control-layers-overlays label:hover {
-      background-color: rgba(255,255,255,0.1) !important;
+    background-color: rgba(255,255,255,0.1) !important;
   }
+
   .leaflet-control-layers-base label {
-      color: white !important;
+    color: white !important;
   }
+
   .leaflet-control-layers-overlays {
-      padding-top: 5px !important;
+    padding-top: 5px !important;
+  }
+
+  /* Stats cards for mobile */
+  .stat-card {
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background-color: #f8f9fa;
+    border-left: 4px solid #0d6efd;
+    transition: all 0.2s ease;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+
+  .stat-card h6 {
+    color: #6c757d;
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+  }
+
+  .stat-card p {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0;
+  }
+
+  /* Image modal for mobile */
+  .fullscreen-image-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.9);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .fullscreen-image-modal img {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+  }
+
+  .close-modal {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    color: white;
+    font-size: 30px;
+    cursor: pointer;
+  }
+
+  /* Add tab navigation for mobile */
+  .session-tabs .nav-link {
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #6c757d;
+    border-radius: 0;
+    padding: 0.5rem 0.25rem;
+    margin-right: 1rem;
+    font-weight: 500;
+  }
+
+  .session-tabs .nav-link.active {
+    color: #0d6efd;
+    border-bottom: 3px solid #0d6efd;
+    background-color: transparent;
+  }
+
+  /* Sticky bottom actions for mobile */
+  @media (max-width: 767.98px) {
+    .mobile-sticky-actions {
+      position: sticky;
+      bottom: 0;
+      background-color: rgba(255,255,255,0.9);
+      backdrop-filter: blur(10px);
+      padding: 0.75rem;
+      margin: 0 -1rem -1rem -1rem;
+      border-top: 1px solid rgba(0,0,0,0.1);
+      z-index: 100;
+    }
   }
 </style>
 {% endblock head_extra %}
 
 {% block content %}
-{# Session Summary Card #}
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-primary text-white">
-        <i class="bi bi-clipboard-data me-1"></i> Session Summary
-    </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-6">
-                <p><strong>Farm:</strong> <a href="{% url 'core:farm_detail' farm.id %}">{{ farm.name }}</a></p>
-                <p><strong>Surveyor:</strong> {{ session.surveyor.username }}</p>
-                <p><strong>Status:</strong> <span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span></p>
-            </div>
-            <div class="col-md-6">
-                <p><strong>Started:</strong> {{ session.start_time|date:"M j, Y, P" }}</p>
-                <p><strong>Ended:</strong> {{ session.end_time|date:"P"|default:"-" }}</p>
-                <p><strong>Duration:</strong> {{ session.duration|default:"-" }}</p>
-            </div>
-        </div>
-        <hr>
-        <div class="row">
-             <div class="col-md-4">
-                <p><strong>Target Observations:</strong> {{ session.target_plants_surveyed|default:"Not Set" }}</p>
-             </div>
-             <div class="col-md-4">
-                <p><strong>Observations Recorded:</strong> {{ completed_count }}</p>
-             </div>
-             <div class="col-md-4">
-                {# Progress bar (optional, can reuse active session logic if needed) #}
-             </div>
-        </div>
-        <div class="row mt-2">
-             <div class="col-md-6">
-                <p><strong>Unique Pests Found ({{ unique_pests_count }}):</strong> 
-                    {% for p in unique_pests %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
-                </p>
-             </div>
-              <div class="col-md-6">
-                <p><strong>Unique Diseases Found ({{ unique_diseases_count }}):</strong> 
-                    {% for d in unique_diseases %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
-                </p>
-             </div>
-        </div>
+<!-- Session Title and Farm Link - Mobile -->
+<div class="d-block d-md-none mb-3">
+    <h5 class="fw-bold mb-1">{{ session.start_time|date:"M j, Y" }}</h5>
+    <p class="mb-1">
+        <a href="{% url 'core:farm_detail' farm.id %}" class="text-decoration-none">
+            <i class="bi bi-house-door me-1"></i> {{ farm.name }}
+        </a>
+    </p>
+    <div class="d-flex align-items-center mt-2">
+        <span class="badge bg-{{ session.get_status_badge_class }} me-2">{{ session.get_status_display }}</span>
+        <span class="text-muted small">by {{ session.surveyor.username }}</span>
     </div>
 </div>
 
-{# --- Map Card - Add this section --- #}
-<div class="card shadow-sm mb-4">
-    <div class="card-header">
-        <i class="bi bi-map me-1"></i> Pest & Disease Intensity Map
-    </div>
-    <div class="card-body">
-        {# This is the div the JavaScript looks for #}
-        <div id="observationMap"></div> 
-        <div class="heatmap-legend" title="Intensity of pest/disease observations"></div>
-        <div class="row mt-3">
-            <div class="col-md-8">
-                <p class="text-muted small">
-                    <i class="bi bi-info-circle me-1"></i> Colors represent concentration of pest and disease observations. Brighter areas indicate higher concentrations of detected pests or diseases.
-                </p>
-            </div>
-            <div class="col-md-4">
-                <p class="text-muted small text-md-end">
-                    <i class="bi bi-layers me-1"></i> Use the controls in the top-right corner to toggle map layers.
-                </p>
-            </div>
-        </div>
-        {# Message if no coords were passed (JS also handles this) #}
-        {% if not observation_coords_json or observation_coords_json == '[]' %} 
-            <p class="text-muted mt-2">No GPS coordinates were recorded for observations in this session.</p>
-        {% endif %}
-    </div>
+<!-- Mobile Tab Navigation -->
+<div class="d-block d-md-none mb-3">
+    <ul class="nav session-tabs" id="sessionTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button" role="tab">
+                <i class="bi bi-clipboard-data me-1"></i> Summary
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="map-tab" data-bs-toggle="tab" data-bs-target="#map" type="button" role="tab">
+                <i class="bi bi-map me-1"></i> Map
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="observations-tab" data-bs-toggle="tab" data-bs-target="#observations" type="button" role="tab">
+                <i class="bi bi-binoculars me-1"></i> Observations
+            </button>
+        </li>
+    </ul>
 </div>
-{# --- End Map Card --- #}
 
-{# Observations List #}
-<div class="card shadow-sm mb-4">
-    <div class="card-header">
-        <i class="bi bi-binoculars me-1"></i> Observations Recorded ({{ completed_count }})
-    </div>
-    <div class="card-body">
-        {% if observations %}
-            {% for obs in observations %}
-                <div class="card observation-card">
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-8">
-                                <h6 class="card-title">Observation at {{ obs.observation_time|date:"P" }}</h6>
-                                <p class="card-text small text-muted mb-1">
-                                    GPS: 
-                                    {% if obs.latitude and obs.longitude %}
-                                        {{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }}
-                                        (Accuracy: {{ obs.gps_accuracy|floatformat:1|default:"?" }}m)
-                                        {# Add link to external map #}
-                                        <a href="https://www.google.com/maps/search/?api=1&query={{ obs.latitude }},{{ obs.longitude }}" target="_blank" class="ms-1"><i class="bi bi-geo-alt-fill"></i></a>
-                                    {% else %}
-                                        Not recorded
-                                    {% endif %}
-                                </p>
-                                <p class="card-text mb-1">
-                                    <strong>Pests:</strong> 
-                                    {% for p in obs.pests_observed.all %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
-                                </p>
-                                <p class="card-text mb-1">
-                                    <strong>Diseases:</strong> 
-                                    {% for d in obs.diseases_observed.all %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
-                                </p>
-                                {% if obs.notes %}
-                                <p class="card-text mt-2"><strong>Notes:</strong> {{ obs.notes|linebreaksbr }}</p>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-4">
-                                {% with first_image=obs.images.first %}
-                                    {% if first_image %}
-                                        <img src="{{ first_image.image.url }}" alt="Observation image" class="img-thumbnail mb-2">
-                                        {# Add link to view all images later? #}
-                                    {% else %}
-                                        <p class="text-muted small text-center mt-3">(No image)</p>
-                                    {% endif %}
-                                {% endwith %}
-                            </div>
+<!-- Mobile Tab Content -->
+<div class="d-block d-md-none">
+    <div class="tab-content" id="sessionTabContent">
+        <!-- Mobile Summary Tab -->
+        <div class="tab-pane fade show active" id="summary" role="tabpanel">
+            <div class="mb-3">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <h6>Started</h6>
+                            <p>{{ session.start_time|date:"M j, Y, g:ia" }}</p>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <h6>Duration</h6>
+                            <p>{{ session.duration|default:"In Progress" }}</p>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <h6>Target</h6>
+                            <p>{{ session.target_plants_surveyed|default:"Not Set" }}</p>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <h6>Completed</h6>
+                            <p>{{ completed_count }}</p>
                         </div>
                     </div>
                 </div>
-            {% endfor %}
-        {% else %}
-            <p class="text-muted">No observations were recorded in this session.</p>
-        {% endif %}
+            </div>
+
+            <!-- Progress Visualization -->
+            {% if session.target_plants_surveyed %}
+            <div class="card shadow-sm mb-3">
+                <div class="card-body p-3">
+                    <h6 class="mb-2">Progress</h6>
+                    <div class="progress mb-2" style="height: 12px;">
+                        {% with percentage=completed_count|floatformat:0|add:0 %}
+                        <div class="progress-bar {% if percentage >= 100 %}bg-success{% else %}bg-primary{% endif %}"
+                             role="progressbar" style="width: {% widthratio completed_count session.target_plants_surveyed 100 %}%;"
+                             aria-valuenow="{{ percentage }}" aria-valuemin="0" aria-valuemax="100">
+                            {% if percentage >= 30 %}{{ percentage }}%{% endif %}
+                        </div>
+                        {% endwith %}
+                    </div>
+                    <p class="text-muted small mb-0">{{ completed_count }} of {{ session.target_plants_surveyed }} observations</p>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Pests & Diseases Summary -->
+            <div class="card shadow-sm mb-3">
+                <div class="card-body p-3">
+                    <h6 class="mb-2">Pests & Diseases Found</h6>
+
+                    {% if unique_pests_count > 0 or unique_diseases_count > 0 %}
+                        <div class="mb-3">
+                            <p class="small text-muted mb-1">Pests ({{ unique_pests_count }}):</p>
+                            <div>
+                                {% for p in unique_pests %}
+                                    <span class="badge bg-danger me-1 mb-1">{{ p.name }}</span>
+                                {% empty %}
+                                    <span class="text-muted">None found</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div>
+                            <p class="small text-muted mb-1">Diseases ({{ unique_diseases_count }}):</p>
+                            <div>
+                                {% for d in unique_diseases %}
+                                    <span class="badge bg-warning text-dark me-1 mb-1">{{ d.name }}</span>
+                                {% empty %}
+                                    <span class="text-muted">None found</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-success py-2 mb-0">
+                            <i class="bi bi-check-circle me-1"></i> No pests or diseases found
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Map Tab -->
+        <div class="tab-pane fade" id="map" role="tabpanel">
+            <div class="card shadow-sm mb-3">
+                <div class="card-body p-3">
+                    <div id="observationMap"></div>
+                    <div class="heatmap-legend" title="Intensity of pest/disease observations"></div>
+                    <p class="text-muted small mt-4 mb-0">
+                        <i class="bi bi-info-circle me-1"></i> Colors show concentration of pest/disease observations
+                    </p>
+
+                    {% if not observation_coords_json or observation_coords_json == '[]' %}
+                        <div class="alert alert-info mt-3 mb-0 py-2 small">
+                            <i class="bi bi-geo-alt-fill me-1"></i> No GPS coordinates recorded in this session
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Observations Tab -->
+        <div class="tab-pane fade" id="observations" role="tabpanel">
+            {% if observations %}
+                {% for obs in observations %}
+                    <div class="card observation-card mb-3">
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="card-title mb-0">Observation #{{ forloop.counter }}</h6>
+                                <span class="text-muted small">{{ obs.observation_time|date:"g:ia" }}</span>
+                            </div>
+
+                            <!-- Image Display (Mobile) -->
+                            {% with first_image=obs.images.first %}
+                                {% if first_image %}
+                                    <div class="mb-3 text-center">
+                                        <img src="{{ first_image.image.url }}" alt="Observation image" class="mb-2 observation-image" data-image-url="{{ first_image.image.url }}">
+                                        {% if obs.images.count > 1 %}
+                                            <span class="badge bg-secondary">+{{ obs.images.count|add:"-1" }} more</span>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Details -->
+                            <div class="mb-2">
+                                <div class="d-flex mb-2">
+                                    <div class="me-2">
+                                        <span class="text-muted small">Pests:</span>
+                                    </div>
+                                    <div>
+                                        {% for p in obs.pests_observed.all %}
+                                            <span class="badge bg-danger me-1 mb-1">{{ p.name }}</span>
+                                        {% empty %}
+                                            <span class="text-muted">None</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+
+                                <div class="d-flex mb-2">
+                                    <div class="me-2">
+                                        <span class="text-muted small">Diseases:</span>
+                                    </div>
+                                    <div>
+                                        {% for d in obs.diseases_observed.all %}
+                                            <span class="badge bg-warning text-dark me-1 mb-1">{{ d.name }}</span>
+                                        {% empty %}
+                                            <span class="text-muted">None</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+
+                                {% if obs.notes %}
+                                    <div class="bg-light p-2 rounded mt-2">
+                                        <div class="text-muted small mb-1">Notes:</div>
+                                        <div class="small">{{ obs.notes|linebreaksbr }}</div>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- GPS Info -->
+                            {% if obs.latitude and obs.longitude %}
+                                <div class="d-flex align-items-center mt-3">
+                                    <i class="bi bi-geo-alt text-muted me-1"></i>
+                                    <a href="https://www.google.com/maps/search/?api=1&query={{ obs.latitude }},{{ obs.longitude }}"
+                                       target="_blank" class="small text-primary text-decoration-none">
+                                        View on Map <i class="bi bi-box-arrow-up-right ms-1"></i>
+                                    </a>
+                                    <span class="text-muted small ms-2">({{ obs.gps_accuracy|floatformat:1|default:"?" }}m accuracy)</span>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-1"></i> No observations were recorded in this session.
+                </div>
+            {% endif %}
+        </div>
     </div>
 </div>
 
-<a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-secondary">
-    <i class="bi bi-arrow-left me-1"></i> Back to Session List
-</a>
+<!-- Desktop View - All Content -->
+<div class="d-none d-md-block">
+    <!-- Session Summary Card -->
+    <div class="card shadow mb-4">
+        <div class="card-header bg-primary bg-gradient text-white d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-clipboard-data me-1"></i> Session Summary
+            </div>
+            <div>
+                <span class="badge bg-light text-primary">{{ session.start_time|date:"F j, Y" }}</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>Farm:</strong> <a href="{% url 'core:farm_detail' farm.id %}" class="text-decoration-none">{{ farm.name }}</a></p>
+                    <p><strong>Surveyor:</strong> {{ session.surveyor.username }}</p>
+                    <p><strong>Status:</strong> <span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span></p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Started:</strong> {{ session.start_time|date:"M j, Y, P" }}</p>
+                    <p><strong>Ended:</strong> {{ session.end_time|date:"P"|default:"-" }}</p>
+                    <p><strong>Duration:</strong> {{ session.duration|default:"-" }}</p>
+                </div>
+            </div>
+            <hr>
+            <div class="row">
+                <div class="col-md-4">
+                    <p><strong>Target Observations:</strong> {{ session.target_plants_surveyed|default:"Not Set" }}</p>
+                </div>
+                <div class="col-md-4">
+                    <p><strong>Observations Recorded:</strong> {{ completed_count }}</p>
+                </div>
+                <div class="col-md-4">
+                    {% if session.target_plants_surveyed %}
+                        <div class="progress mt-2" style="height: 10px;">
+                            <div class="progress-bar {% if completed_count >= session.target_plants_surveyed %}bg-success{% else %}bg-primary{% endif %}"
+                                 style="width: {% widthratio completed_count session.target_plants_surveyed 100 %}%;"
+                                 role="progressbar">
+                            </div>
+                        </div>
+                        <p class="text-muted small mt-1">{{ completed_count }} of {{ session.target_plants_surveyed }} observations ({% widthratio completed_count session.target_plants_surveyed 100 %}%)</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="row mt-2">
+                <div class="col-md-6">
+                    <p><strong>Unique Pests Found ({{ unique_pests_count }}):</strong>
+                        {% for p in unique_pests %}<span class="badge bg-danger me-1">{{ p.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                    </p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Unique Diseases Found ({{ unique_diseases_count }}):</strong>
+                        {% for d in unique_diseases %}<span class="badge bg-warning text-dark me-1">{{ d.name }}</span>{% empty %}<span class="text-muted">None</span>{% endfor %}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
 
-{# --- PDF Download Button (Temporarily disabled) --- #}
-{# Will implement PDF generation functionality later
-<a href="#" class="btn btn-info ms-2" target="_blank">
-    <i class="bi bi-file-earmark-pdf me-1"></i> Download PDF Report
-</a>
-#}
+    <!-- Map Card -->
+    <div class="card shadow mb-4">
+        <div class="card-header bg-gradient d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-map me-1"></i> Pest & Disease Intensity Map
+            </div>
+            <div>
+                <span class="badge bg-light text-dark">
+                    <i class="bi bi-geo-alt me-1"></i> {{ observations|length }} Locations
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- Map Element -->
+            <div id="observationMap"></div>
+            <div class="heatmap-legend" title="Intensity of pest/disease observations"></div>
 
+            <!-- Map Info -->
+            <div class="row mt-3">
+                <div class="col-md-8">
+                    <p class="text-muted small">
+                        <i class="bi bi-info-circle me-1"></i> Colors represent concentration of pest and disease observations. Brighter areas indicate higher concentrations of detected pests or diseases.
+                    </p>
+                </div>
+                <div class="col-md-4">
+                    <p class="text-muted small text-md-end">
+                        <i class="bi bi-layers me-1"></i> Use the controls in the top-right corner to toggle map layers.
+                    </p>
+                </div>
+            </div>
+
+            <!-- No GPS Data Message -->
+            {% if not observation_coords_json or observation_coords_json == '[]' %}
+                <div class="alert alert-info">
+                    <i class="bi bi-geo-alt me-1"></i> No GPS coordinates were recorded for observations in this session.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Observations List -->
+    <div class="card shadow mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-binoculars me-1"></i> Observations Recorded
+            </div>
+            <div>
+                <span class="badge bg-primary">{{ completed_count }} Total</span>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if observations %}
+                {% for obs in observations %}
+                    <div class="card observation-card">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <h6 class="card-title">
+                                        <span class="badge bg-light text-dark me-2">#{{ forloop.counter }}</span>
+                                        Observation at {{ obs.observation_time|date:"P" }}
+                                    </h6>
+                                    <p class="card-text small text-muted mb-1">
+                                        GPS:
+                                        {% if obs.latitude and obs.longitude %}
+                                            {{ obs.latitude|floatformat:5 }}, {{ obs.longitude|floatformat:5 }}
+                                            (Accuracy: {{ obs.gps_accuracy|floatformat:1|default:"?" }}m)
+                                            <a href="https://www.google.com/maps/search/?api=1&query={{ obs.latitude }},{{ obs.longitude }}"
+                                               target="_blank" class="ms-1 text-decoration-none">
+                                                <i class="bi bi-geo-alt-fill"></i>
+                                            </a>
+                                        {% else %}
+                                            Not recorded
+                                        {% endif %}
+                                    </p>
+                                    <p class="card-text mb-1">
+                                        <strong>Pests:</strong>
+                                        {% for p in obs.pests_observed.all %}
+                                            <span class="badge bg-danger me-1">{{ p.name }}</span>
+                                        {% empty %}
+                                            <span class="text-muted">None</span>
+                                        {% endfor %}
+                                    </p>
+                                    <p class="card-text mb-1">
+                                        <strong>Diseases:</strong>
+                                        {% for d in obs.diseases_observed.all %}
+                                            <span class="badge bg-warning text-dark me-1">{{ d.name }}</span>
+                                        {% empty %}
+                                            <span class="text-muted">None</span>
+                                        {% endfor %}
+                                    </p>
+                                    {% if obs.notes %}
+                                        <div class="card-text mt-2 bg-light p-2 rounded">
+                                            <strong class="small">Notes:</strong>
+                                            <div class="small mt-1">{{ obs.notes|linebreaksbr }}</div>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    {% with first_image=obs.images.first %}
+                                        {% if first_image %}
+                                            <img src="{{ first_image.image.url }}"
+                                                 alt="Observation image"
+                                                 class="img-thumbnail mb-2 observation-image"
+                                                 data-image-url="{{ first_image.image.url }}">
+                                            {% if obs.images.count > 1 %}
+                                                <div class="text-center">
+                                                    <span class="badge bg-secondary">+{{ obs.images.count|add:"-1" }} more images</span>
+                                                </div>
+                                            {% endif %}
+                                        {% else %}
+                                            <div class="text-center bg-light p-4 rounded">
+                                                <i class="bi bi-camera text-muted fs-3"></i>
+                                                <p class="text-muted small mt-2 mb-0">No image</p>
+                                            </div>
+                                        {% endif %}
+                                    {% endwith %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-1"></i> No observations were recorded in this session.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Shared Action Buttons: Desktop -->
+<div class="d-none d-md-flex justify-content-between align-items-center">
+    <a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Back to Session List
+    </a>
+
+    <div>
+        <a href="{% url 'core:start_survey_session' farm.id %}" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-1"></i> New Survey Session
+        </a>
+
+        {# Disabled Download PDF Button #}
+        <button type="button" class="btn btn-outline-info ms-2" disabled>
+            <i class="bi bi-file-earmark-pdf me-1"></i> Download Report
+        </button>
+    </div>
+</div>
+
+<!-- Sticky Mobile Actions -->
+<div class="d-block d-md-none mobile-sticky-actions">
+    <div class="d-flex gap-2">
+        <a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-outline-secondary flex-grow-1">
+            <i class="bi bi-list me-1"></i> All Sessions
+        </a>
+        <a href="{% url 'core:start_survey_session' farm.id %}" class="btn btn-primary flex-grow-1">
+            <i class="bi bi-plus-circle me-1"></i> New Session
+        </a>
+    </div>
+</div>
+
+<!-- Fullscreen Image Modal -->
+<div class="fullscreen-image-modal" id="imageModal">
+    <span class="close-modal">&times;</span>
+    <img id="fullscreenImage" src="" alt="Fullscreen observation image">
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -239,6 +676,60 @@
 {{ observation_coords_json|json_script:"observation-coords-data" }}
 {# Safely pass farm boundary data #}
 {{ farm_boundary_json|safe|json_script:"farm-boundary-data" }}
+
+<!-- Add JavaScript for handling image modal -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Image modal functionality
+    const modal = document.getElementById('imageModal');
+    const fullscreenImage = document.getElementById('fullscreenImage');
+    const closeBtn = document.querySelector('.close-modal');
+    const observationImages = document.querySelectorAll('.observation-image');
+
+    // Add click event to all observation images
+    observationImages.forEach(img => {
+        img.addEventListener('click', function() {
+            const imageUrl = this.getAttribute('data-image-url');
+            if (imageUrl) {
+                fullscreenImage.src = imageUrl;
+                modal.style.display = 'flex';
+                document.body.style.overflow = 'hidden'; // Prevent scrolling
+            }
+        });
+    });
+
+    // Close modal when clicking the close button
+    if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+            modal.style.display = 'none';
+            document.body.style.overflow = ''; // Restore scrolling
+        });
+    }
+
+    // Close modal when clicking outside the image
+    if (modal) {
+        modal.addEventListener('click', function(event) {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+                document.body.style.overflow = ''; // Restore scrolling
+            }
+        });
+    }
+
+    // Handle mobile tab behavior
+    const mapTab = document.getElementById('map-tab');
+
+    // When map tab is shown, trigger resize event for Leaflet map
+    if (mapTab) {
+        mapTab.addEventListener('shown.bs.tab', function() {
+            // Add a slight delay to ensure DOM is ready
+            setTimeout(function() {
+                window.dispatchEvent(new Event('resize'));
+            }, 10);
+        });
+    }
+});
+</script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

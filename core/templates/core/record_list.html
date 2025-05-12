@@ -5,15 +5,36 @@
 {% block heading %}Your Surveillance Records{% endblock %}
 
 {% block content %}
-<div class="card shadow-sm mb-4">
-    <div class="card-header text-white" style="background-color: #6c757d;"> {# Grey header #}
+<div class="card shadow mb-4">
+    <div class="card-header text-white bg-gradient d-flex justify-content-between align-items-center" style="background-color: #6c757d;">
         <h5 class="mb-0">All Recorded Activities</h5>
-        {# Optional: Add filtering/sorting controls later #}
+        <button class="btn btn-sm btn-light d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#recordFilters" aria-expanded="false">
+            <i class="bi bi-funnel-fill"></i> Filter
+        </button>
     </div>
+
+    <!-- Mobile Filter Panel (Collapsible) -->
+    <div class="collapse d-md-none" id="recordFilters">
+        <div class="card-body bg-light border-bottom">
+            <div class="mb-2">
+                <label class="form-label small">Farm:</label>
+                <select class="form-select form-select-sm">
+                    <option selected>All Farms</option>
+                    <!-- Farm options would be populated here -->
+                </select>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-primary flex-grow-1">Apply</button>
+                <button class="btn btn-sm btn-outline-secondary flex-grow-1" data-bs-toggle="collapse" data-bs-target="#recordFilters">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div class="card-body p-0">
         {% if records %}
-            <div class="table-responsive">
-                <table class="table table-striped table-hover mb-0">
+            <!-- Desktop Table View -->
+            <div class="table-responsive d-none d-md-block">
+                <table class="table table-striped table-hover align-middle mb-0">
                     <thead class="table-light">
                         <tr>
                             <th>Date</th>
@@ -21,41 +42,110 @@
                             <th>Plants Surveyed</th>
                             <th>Parts Checked</th>
                             <th>Pests Found</th>
-                            <th>Actions</th> {# Placeholder Actions #}
+                            <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for record in records %}
                         <tr>
                             <td>{{ record.date_performed|date:"Y-m-d H:i" }}</td>
-                            <td><a href="{% url 'core:farm_detail' record.farm.id %}">{{ record.farm.name }}</a></td>
+                            <td><a href="{% url 'core:farm_detail' record.farm.id %}" class="text-decoration-none fw-medium">{{ record.farm.name }}</a></td>
                             <td>{{ record.plants_surveyed }}</td>
                             <td>
                                 {% for part in record.plant_parts_checked.all %}
-                                    {{ part.name }}{% if not forloop.last %}, {% endif %}
+                                    <span class="badge bg-light text-dark">{{ part.name }}</span>{% if not forloop.last %} {% endif %}
                                 {% empty %}
-                                    -
+                                    <span class="text-muted">-</span>
                                 {% endfor %}
                             </td>
                             <td>
                                 {% for pest in record.pests_found.all %}
-                                    {{ pest.name }}{% if not forloop.last %}, {% endif %}
+                                    <span class="badge bg-warning text-dark">{{ pest.name }}</span>{% if not forloop.last %} {% endif %}
                                 {% empty %}
-                                    -
+                                    <span class="badge bg-success">None found</span>
                                 {% endfor %}
                             </td>
-                            <td>{# Placeholder View/Edit links #}<a href="#" class="btn btn-outline-primary btn-sm disabled">View</a></td> 
+                            <td class="text-end">
+                                <a href="#" class="btn btn-outline-primary btn-sm disabled">View</a>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {# Add pagination later if list becomes long #}
+
+            <!-- Mobile Card View -->
+            <div class="d-md-none">
+                {% for record in records %}
+                <div class="card border-0 border-bottom rounded-0">
+                    <div class="card-body pb-3 pt-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="card-title mb-0">
+                                <a href="{% url 'core:farm_detail' record.farm.id %}" class="text-decoration-none stretched-link">
+                                    {{ record.farm.name }}
+                                </a>
+                            </h6>
+                            <span class="text-muted small">{{ record.date_performed|date:"M d, Y" }}</span>
+                        </div>
+
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted small">Plants surveyed:</span>
+                                <span class="fw-medium">{{ record.plants_surveyed }}</span>
+                            </div>
+
+                            <div class="mb-1">
+                                <span class="text-muted small">Parts checked:</span>
+                                <div class="mt-1">
+                                    {% for part in record.plant_parts_checked.all %}
+                                        <span class="badge bg-light text-dark mb-1">{{ part.name }}</span>{% if not forloop.last %} {% endif %}
+                                    {% empty %}
+                                        <span class="text-muted">None</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-1">
+                                <span class="text-muted small">Pests found:</span>
+                                <div class="mt-1">
+                                    {% for pest in record.pests_found.all %}
+                                        <span class="badge bg-warning text-dark mb-1">{{ pest.name }}</span>{% if not forloop.last %} {% endif %}
+                                    {% empty %}
+                                        <span class="badge bg-success">None found</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-2 mt-3">
+                            <a href="#" class="btn btn-sm btn-outline-primary w-100 disabled">View Details</a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Pagination -->
+            <nav aria-label="Record pagination" class="my-3 px-3">
+                <ul class="pagination pagination-sm justify-content-center mb-0">
+                    <li class="page-item disabled">
+                        <a class="page-link" href="#" tabindex="-1" aria-disabled="true">Previous</a>
+                    </li>
+                    <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                    <li class="page-item disabled">
+                        <a class="page-link" href="#">Next</a>
+                    </li>
+                </ul>
+            </nav>
+
         {% else %}
-            <div class="card-body text-center">
+            <div class="card-body text-center py-5">
+                <div class="text-muted mb-3">
+                    <i class="bi bi-clipboard-data fs-1"></i>
+                </div>
+                <h5>No Records Yet</h5>
                 <p class="text-muted">You haven't recorded any surveillance activities yet.</p>
-                 {# Optional: Link to add a record - maybe guide to a farm first? #}
-                 {# <a href="{% url 'core:home' %}" class="btn btn-primary">Select a Farm to Record Activity</a> #}
+                <a href="{% url 'core:home' %}" class="btn btn-primary">Select a Farm to Start</a>
             </div>
         {% endif %}
     </div>

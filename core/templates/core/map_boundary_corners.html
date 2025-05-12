@@ -2,17 +2,35 @@
 
 {% block title %}Map Boundary Corners - {{ farm.name }}{% endblock %}
 
+{% block heading %}
+<div class="d-flex align-items-center">
+    <span class="me-auto text-truncate">Map Boundary - {{ farm.name }}</span>
+    <a href="{% url 'core:farm_detail' farm_id=farm.id %}" class="btn btn-sm btn-outline-secondary d-md-none">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+</div>
+{% endblock %}
+
 {% block head_extra %}
 {# Add Leaflet CSS #}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 <style>
   #map {
-    height: 65vh; /* Adjust height */
+    height: 50vh; /* Mobile height */
     width: 100%;
     border: 1px solid #ccc;
     border-radius: 4px;
     margin-bottom: 1rem;
+    touch-action: manipulation; /* Improve touch experience */
+    z-index: 1; /* Ensure proper stacking of map elements */
   }
+
+  @media (min-width: 768px) {
+    #map {
+      height: 65vh; /* Desktop height */
+    }
+  }
+
   .status-bar {
     padding: 0.5rem 1rem;
     background-color: #e9ecef;
@@ -20,26 +38,69 @@
     border-radius: 4px;
     font-size: 0.9rem;
   }
+
   .corner-controls button {
-      margin-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
   }
+
   .accuracy-circle {
-      stroke: rgba(0, 123, 255, 0.3);
-      stroke-width: 1;
-      fill: rgba(0, 123, 255, 0.1);
+    stroke: rgba(0, 123, 255, 0.3);
+    stroke-width: 1;
+    fill: rgba(0, 123, 255, 0.1);
+  }
+
+  /* Mobile optimizations */
+  .mobile-record-button {
+    position: fixed;
+    bottom: 80px;
+    right: 16px;
+    z-index: 1000;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  }
+
+  .mobile-status-badge {
+    position: fixed;
+    top: 70px;
+    right: 10px;
+    z-index: 1000;
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    background: rgba(255,255,255,0.8);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+
+  /* Larger touch targets for mobile */
+  @media (max-width: 767px) {
+    .leaflet-control-zoom a {
+      width: 40px !important;
+      height: 40px !important;
+      line-height: 40px !important;
+      font-size: 22px !important;
+    }
+
+    .corner-item {
+      padding: 10px !important;
+    }
   }
 </style>
 {% endblock head_extra %}
 
 {% block content %}
-<div class="container mt-4">
+<!-- Desktop View -->
+<div class="d-none d-md-block">
     <div class="card shadow-sm">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
             <h4 class="mb-0">Map Farm Boundary Corners</h4>
             <span class="badge bg-light text-dark">{{ farm.name }}</span>
         </div>
         <div class="card-body">
-
             <div class="alert alert-warning small" role="alert">
                 <i class="bi bi-exclamation-triangle me-1"></i>
                 <strong>Instructions:</strong> Go to the first corner of your farm boundary. Click "Record Corner". Then, walk around the perimeter to the next corner and click "Record Corner" again. Repeat for all corners, ensuring you record them <strong>strictly in order</strong> (clockwise or counter-clockwise). Click "Save Boundary" when finished. You need at least 3 corners.
@@ -47,13 +108,13 @@
 
             <div class="status-bar d-flex justify-content-between align-items-center">
                 <div>
-                    Current Corner: <span id="corner-number" class="fw-bold">1</span>
+                    Current Corner: <span id="corner-number-desktop" class="fw-bold">1</span>
                 </div>
                 <div>
-                    Corners Recorded: <span id="point-count" class="fw-bold">0</span>
+                    Corners Recorded: <span id="point-count-desktop" class="fw-bold">0</span>
                 </div>
-                 <div>
-                    GPS Status: <span id="gps-status">Initializing...</span>
+                <div>
+                    GPS Status: <span id="gps-status-desktop">Initializing...</span>
                 </div>
             </div>
 
@@ -65,7 +126,7 @@
                         <i class="bi bi-geo-alt-fill"></i> Record Corner <span id="current-corner-label">1</span>
                     </button>
                 </div>
-                 <div class="col-md-4 mb-2">
+                <div class="col-md-4 mb-2">
                     <button id="undo-button" class="btn btn-outline-warning w-100" disabled>
                         <i class="bi bi-arrow-counterclockwise"></i> Undo Last Corner
                     </button>
@@ -74,30 +135,87 @@
                     <button id="save-button" class="btn btn-success w-100" disabled>
                         <i class="bi bi-check-lg"></i> Save Boundary
                     </button>
-                 </div>
+                </div>
             </div>
 
-            <ul id="coordinate-list" class="list-group list-group-flush small mt-2" style="max-height: 100px; overflow-y: auto;">
+            <ul id="coordinate-list" class="list-group list-group-flush small mt-2" style="max-height: 200px; overflow-y: auto;">
                 {# Recorded coordinates will be listed here by JS #}
             </ul>
 
-            {# Hidden form to submit data #}
-            <form id="boundary-form" method="post" class="mt-3 d-none">
-                {% csrf_token %}
-                <input type="hidden" name="boundary_coordinates" id="id_boundary_coordinates">
-                {# Add farm id if needed, although view will get it from URL #}
-            </form>
-             <div id="form-messages"></div> {# For success/error messages #}
-            
-             <hr>
-             <div class="text-end">
-                 <a href="{% url 'core:farm_detail' farm_id=farm.id %}" class="btn btn-sm btn-outline-secondary">Cancel Mapping</a>
+            <hr>
+            <div class="text-end">
+                <a href="{% url 'core:farm_detail' farm_id=farm.id %}" class="btn btn-sm btn-outline-secondary">Cancel Mapping</a>
             </div>
-
         </div>
     </div>
 </div>
-{% endblock %}
+
+<!-- Mobile View -->
+<div class="d-block d-md-none">
+    <!-- Mobile status indicators -->
+    <div class="mobile-status-badge" id="mobile-gps-status">
+        GPS: Initializing...
+    </div>
+
+    <div class="alert alert-warning p-2 mb-2" role="alert">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        Walk to each corner of your farm and tap "Record Corner". Record at least 3 corners in order.
+    </div>
+
+    <!-- Map takes full width in mobile -->
+    <div id="map" class="mb-2"></div>
+
+    <!-- Simplified status display for mobile -->
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <strong>Current Corner:</strong> <span id="corner-number-mobile" class="fw-bold">1</span>
+                </div>
+                <div>
+                    <strong>Recorded:</strong> <span id="point-count-mobile" class="fw-bold">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Corner list with larger touch targets -->
+    <div id="mobile-corner-list" class="mb-3">
+        <h6 class="small text-muted mb-1">Recorded Corners:</h6>
+        <div id="mobile-coordinates-container" style="max-height: 150px; overflow-y: auto;">
+            <ul id="mobile-coordinate-list" class="list-group">
+                <!-- JS will populate this -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Mobile action buttons in grid layout -->
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <button id="mobile-undo-button" class="btn btn-outline-warning w-100 py-2" disabled>
+                <i class="bi bi-arrow-counterclockwise"></i> Undo
+            </button>
+        </div>
+        <div class="col-6">
+            <button id="mobile-save-button" class="btn btn-success w-100 py-2" disabled>
+                <i class="bi bi-check-lg"></i> Save Boundary
+            </button>
+        </div>
+    </div>
+
+    <!-- Floating record button for easy access -->
+    <button id="mobile-record-button" class="btn btn-primary mobile-record-button">
+        <i class="bi bi-geo-alt-fill fs-4"></i>
+    </button>
+</div>
+
+{# Hidden form to submit data #}
+<form id="boundary-form" method="post" class="d-none">
+    {% csrf_token %}
+    <input type="hidden" name="boundary_coordinates" id="id_boundary_coordinates">
+</form>
+<div id="form-messages"></div> {# For success/error messages #}
+{% endblock content %}
 
 {% block extra_js %}
 {{ block.super }}
@@ -110,24 +228,49 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Map Initialization ---
     // Initialize with a default view, will be updated by geolocation
-    const map = L.map('map').setView([0, 0], 2);
-    
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    const map = L.map('map', {
+        zoomControl: false, // Will add custom zoom control
+        attributionControl: false // Hide attribution for cleaner mobile view
+    }).setView([0, 0], 2);
+
+    // Add custom zoom control with larger buttons for mobile
+    L.control.zoom({
+        position: 'topright'
     }).addTo(map);
 
-    // --- UI Elements ---
+    // Add attribution in a less obtrusive way
+    L.control.attribution({
+        position: 'bottomright',
+        prefix: ''
+    }).addAttribution('© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>').addTo(map);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+    }).addTo(map);
+
+    // --- UI Elements (Desktop) ---
     const recordButton = document.getElementById('record-corner-button');
     const undoButton = document.getElementById('undo-button');
     const saveButton = document.getElementById('save-button');
-    const gpsStatusDisplay = document.getElementById('gps-status');
-    const cornerNumberDisplay = document.getElementById('corner-number');
+    const gpsStatusDesktop = document.getElementById('gps-status-desktop');
+    const cornerNumberDesktop = document.getElementById('corner-number-desktop');
     const cornerLabelDisplay = document.getElementById('current-corner-label');
-    const pointCountDisplay = document.getElementById('point-count');
+    const pointCountDesktop = document.getElementById('point-count-desktop');
     const coordinateListDisplay = document.getElementById('coordinate-list');
+
+    // --- UI Elements (Mobile) ---
+    const mobileRecordButton = document.getElementById('mobile-record-button');
+    const mobileUndoButton = document.getElementById('mobile-undo-button');
+    const mobileSaveButton = document.getElementById('mobile-save-button');
+    const mobileGpsStatus = document.getElementById('mobile-gps-status');
+    const cornerNumberMobile = document.getElementById('corner-number-mobile');
+    const pointCountMobile = document.getElementById('point-count-mobile');
+    const mobileCoordinateList = document.getElementById('mobile-coordinate-list');
+
+    // --- Shared Elements ---
     const boundaryInput = document.getElementById('id_boundary_coordinates');
     const boundaryForm = document.getElementById('boundary-form');
-    
+
     // --- State Variables ---
     let cornerPoints = []; // Array to store recorded boundary corners
     let currentMarker = null; // Marker for current position
@@ -135,56 +278,82 @@ document.addEventListener('DOMContentLoaded', function() {
     let positionWatchId = null; // ID for the watchPosition
     let currentBoundaryLayer = null; // Layer for displaying boundary polygon
     let mapInitialized = false; // Flag to track if map has been centered on user
-    
+    let currentAccuracy = null; // Store current accuracy value
+
     // --- Utility Functions ---
     function formatCoordinate(lat, lng) {
         return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     }
-    
+
     function updateUI() {
-        // Update corner counts
+        // Update corner counts - Desktop
         const nextCornerNum = cornerPoints.length + 1;
-        cornerNumberDisplay.textContent = nextCornerNum;
+        cornerNumberDesktop.textContent = nextCornerNum;
         cornerLabelDisplay.textContent = nextCornerNum;
-        pointCountDisplay.textContent = cornerPoints.length;
-        
-        // Update buttons state
+        pointCountDesktop.textContent = cornerPoints.length;
+
+        // Update corner counts - Mobile
+        cornerNumberMobile.textContent = nextCornerNum;
+        pointCountMobile.textContent = cornerPoints.length;
+
+        // Update buttons state - Desktop
         undoButton.disabled = cornerPoints.length === 0;
         saveButton.disabled = cornerPoints.length < 3;
-        
-        // Update coordinate list
+
+        // Update buttons state - Mobile
+        mobileUndoButton.disabled = cornerPoints.length === 0;
+        mobileSaveButton.disabled = cornerPoints.length < 3;
+
+        // Update coordinate list - Desktop
         coordinateListDisplay.innerHTML = '';
+
+        // Update coordinate list - Mobile
+        mobileCoordinateList.innerHTML = '';
+
+        // Populate both lists
         cornerPoints.forEach((point, index) => {
+            // Desktop list item
             const listItem = document.createElement('li');
             listItem.className = 'list-group-item d-flex justify-content-between align-items-center py-1';
             listItem.innerHTML = `
                 <span>Corner ${index+1}: ${formatCoordinate(point[0], point[1])}</span>
-                <span class="badge bg-secondary">Accuracy: ${point[2]}m</span>
+                <span class="badge bg-secondary">Accuracy: ${point[2].toFixed(1)}m</span>
             `;
             coordinateListDisplay.appendChild(listItem);
+
+            // Mobile list item (simpler)
+            const mobileListItem = document.createElement('li');
+            mobileListItem.className = 'list-group-item corner-item py-2';
+            mobileListItem.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><strong>${index+1}:</strong> ${formatCoordinate(point[0], point[1])}</div>
+                    <span class="badge bg-secondary">${point[2].toFixed(1)}m</span>
+                </div>
+            `;
+            mobileCoordinateList.appendChild(mobileListItem);
         });
-        
+
         // Update boundary polygon on map
         drawBoundaryPolygon();
     }
-    
+
     function drawBoundaryPolygon() {
         // Remove existing polygon if any
         if (currentBoundaryLayer) {
             map.removeLayer(currentBoundaryLayer);
         }
-        
+
         // Need at least 3 points for a polygon
         if (cornerPoints.length < 3) {
             return;
         }
-        
+
         // Extract just lat/lng pairs for the polygon (excluding accuracy)
         const polygonPoints = cornerPoints.map(point => [point[0], point[1]]);
-        
+
         // Create a closed polygon (add first point at the end)
         const closedPolygon = [...polygonPoints, polygonPoints[0]];
-        
+
         // Create the polygon and add to map
         currentBoundaryLayer = L.polygon(closedPolygon, {
             color: 'green',
@@ -192,56 +361,105 @@ document.addEventListener('DOMContentLoaded', function() {
             fillColor: 'green',
             fillOpacity: 0.2
         }).addTo(map);
-        
-        // Fit map to boundary
-        map.fitBounds(currentBoundaryLayer.getBounds());
+
+        // Fit map to boundary with padding for mobile
+        const isMobile = window.innerWidth < 768;
+        const padding = isMobile ? [60, 60] : [30, 30];
+        map.fitBounds(currentBoundaryLayer.getBounds(), {
+            padding: padding
+        });
     }
-    
+
+    function updateGpsStatus(accuracy) {
+        currentAccuracy = accuracy;
+
+        // Format the status text
+        const statusText = `Accuracy: ${accuracy.toFixed(1)}m`;
+        const mobileStatusText = `GPS: ${accuracy.toFixed(1)}m`;
+
+        // Update desktop status
+        gpsStatusDesktop.textContent = statusText;
+
+        // Update mobile status
+        mobileGpsStatus.textContent = mobileStatusText;
+
+        // Color coding for accuracy
+        let colorClass = '';
+        let textColor = '';
+
+        if (accuracy <= 10) {
+            colorClass = 'bg-success text-white';
+            textColor = 'green'; // Excellent
+        } else if (accuracy <= 30) {
+            colorClass = 'bg-success text-white';
+            textColor = '#5cb85c'; // Good
+        } else if (accuracy <= 100) {
+            colorClass = 'bg-warning text-dark';
+            textColor = 'orange'; // Fair
+        } else {
+            colorClass = 'bg-danger text-white';
+            textColor = 'red'; // Poor
+        }
+
+        // Set desktop text color
+        gpsStatusDesktop.style.color = textColor;
+
+        // For mobile, use background color with classes
+        mobileGpsStatus.className = `mobile-status-badge ${colorClass}`;
+    }
+
     function startPositionWatch() {
         if (!navigator.geolocation) {
-            gpsStatusDisplay.textContent = "Geolocation not supported";
-            gpsStatusDisplay.style.color = "red";
+            gpsStatusDesktop.textContent = "Geolocation not supported";
+            mobileGpsStatus.textContent = "GPS not supported";
+            gpsStatusDesktop.style.color = "red";
+            mobileGpsStatus.className = "mobile-status-badge bg-danger text-white";
             return;
         }
-        
-        gpsStatusDisplay.textContent = "Getting position...";
-        gpsStatusDisplay.style.color = "orange";
-        
-        // Use a one-time getCurrentPosition first for faster initial positioning
-        navigator.geolocation.getCurrentPosition(
+
+        // Update status indicators
+        gpsStatusDesktop.textContent = "Getting position...";
+        mobileGpsStatus.textContent = "GPS: Connecting...";
+        gpsStatusDesktop.style.color = "orange";
+        mobileGpsStatus.className = "mobile-status-badge bg-warning text-dark";
+
+        // Use watchPosition with high accuracy
+        positionWatchId = navigator.geolocation.watchPosition(
             updatePosition,
             handlePositionError,
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-        
-        // Then start continuous watch with watchPosition
-        positionWatchId = navigator.geolocation.watchPosition(
-            updatePosition, 
-            handlePositionError,
-            { 
+            {
                 enableHighAccuracy: true,
                 timeout: 30000,
                 maximumAge: 0 // Force fresh readings
             }
         );
     }
-    
+
     function updatePosition(position) {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         const accuracy = position.coords.accuracy;
-        
+
         // Log position details
         console.log(`Position update: Lat=${lat.toFixed(6)}, Lng=${lng.toFixed(6)}, Acc=${accuracy.toFixed(1)}m`);
-        
+
         // Update position marker on map
         if (currentMarker) {
             map.removeLayer(currentMarker);
         }
+
+        // Use a more visible marker for better mobile visibility
+        const markerIcon = L.divIcon({
+            html: '<div style="background-color:#0d6efd; color:white; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-weight:bold;"><i class="bi bi-geo-alt-fill"></i></div>',
+            className: 'current-position-marker',
+            iconSize: [24, 24]
+        });
+
         currentMarker = L.marker([lat, lng], {
-            title: 'Current Position'
+            title: 'Current Position',
+            icon: markerIcon
         }).addTo(map);
-        
+
         // Update accuracy circle
         if (accuracyCircle) {
             map.removeLayer(accuracyCircle);
@@ -250,127 +468,256 @@ document.addEventListener('DOMContentLoaded', function() {
             radius: accuracy,
             className: 'accuracy-circle'
         }).addTo(map);
-        
-        // Update GPS status display
-        gpsStatusDisplay.textContent = `Accuracy: ${accuracy.toFixed(1)}m`;
-        
-        // Color-code accuracy
-        if (accuracy <= 10) {
-            gpsStatusDisplay.style.color = "green"; // Excellent
-        } else if (accuracy <= 30) {
-            gpsStatusDisplay.style.color = "#5cb85c"; // Good
-        } else if (accuracy <= 100) {
-            gpsStatusDisplay.style.color = "orange"; // Fair
-        } else {
-            gpsStatusDisplay.style.color = "red"; // Poor
-        }
-        
-        // Center map on first position fix
+
+        // Update GPS status display for both mobile and desktop
+        updateGpsStatus(accuracy);
+
+        // Center map on first position fix with appropriate zoom level
         if (!mapInitialized) {
-            map.setView([lat, lng], 18); // Zoom level 18 is good for outdoor mapping
+            const zoomLevel = window.innerWidth < 768 ? 17 : 18; // Slightly less zoom on mobile
+            map.setView([lat, lng], zoomLevel);
             mapInitialized = true;
+
+            // Add attribution after map is initialized to avoid obstruction
+            setTimeout(() => {
+                L.control.attribution({
+                    position: 'bottomright',
+                    prefix: ''
+                }).addAttribution('© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>').addTo(map);
+            }, 2000);
+        }
+
+        // Handle map panning for mobile if user is moving
+        if (mapInitialized && window.innerWidth < 768) {
+            map.panTo([lat, lng]);
         }
     }
-    
+
     function handlePositionError(error) {
         console.error("GPS error:", error);
-        gpsStatusDisplay.textContent = `GPS Error: ${error.message}`;
-        gpsStatusDisplay.style.color = "red";
-        
+
+        // Update desktop status
+        gpsStatusDesktop.textContent = `GPS Error: ${error.message}`;
+        gpsStatusDesktop.style.color = "red";
+
+        // Update mobile status
+        mobileGpsStatus.textContent = "GPS Error";
+        mobileGpsStatus.className = "mobile-status-badge bg-danger text-white";
+
         // Alert user if permissions denied
         if (error.code === error.PERMISSION_DENIED) {
             alert("Location permission denied. Please enable location services for this site to map boundaries.");
         }
     }
-    
+
     function recordCorner() {
         if (!currentMarker) {
             alert("Waiting for GPS position. Please try again when your position appears on the map.");
             return;
         }
-        
+
         const position = currentMarker.getLatLng();
-        const accuracy = accuracyCircle ? accuracyCircle.getRadius() : null;
-        
+        const accuracy = currentAccuracy || accuracyCircle.getRadius();
+
+        // Haptic feedback for mobile devices if available
+        if (window.navigator && window.navigator.vibrate) {
+            window.navigator.vibrate(100); // Short vibration for feedback
+        }
+
         // Confirm if accuracy is poor
         if (accuracy > 50) {
             if (!confirm(`GPS accuracy is currently ${accuracy.toFixed(1)}m, which is not optimal. Record anyway?`)) {
                 return;
             }
         }
-        
+
         // Store the corner coordinates with accuracy information
         cornerPoints.push([position.lat, position.lng, accuracy]);
-        
+
         // Add a numbered marker for this corner
         const cornerNumber = cornerPoints.length;
+        const isMobile = window.innerWidth < 768;
+        const markerSize = isMobile ? 30 : 22; // Larger marker for mobile
+
         L.marker([position.lat, position.lng], {
             icon: L.divIcon({
-                html: `<div style="background-color:green; color:white; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-weight:bold;">${cornerNumber}</div>`,
+                html: `<div style="background-color:green; color:white; border-radius:50%; width:${markerSize}px; height:${markerSize}px; display:flex; align-items:center; justify-content:center; font-weight:bold;">${cornerNumber}</div>`,
                 className: 'corner-marker',
-                iconSize: [20, 20]
+                iconSize: [markerSize, markerSize]
             })
         }).addTo(map);
-        
+
         // Update UI
         updateUI();
+
+        // Show success toast on mobile
+        if (isMobile) {
+            showToast(`Corner ${cornerNumber} recorded!`, 'success');
+        }
     }
-    
+
     function undoLastCorner() {
         if (cornerPoints.length === 0) return;
-        
+
         cornerPoints.pop();
         updateUI();
+
         // Refresh map to remove the marker (quick way is to redraw all markers)
         map.eachLayer(layer => {
             if (layer instanceof L.Marker && layer !== currentMarker) {
                 map.removeLayer(layer);
             }
         });
-        
+
         // Redraw numbered markers for remaining corners
+        const isMobile = window.innerWidth < 768;
+        const markerSize = isMobile ? 30 : 22; // Larger marker for mobile
+
         cornerPoints.forEach((point, index) => {
             L.marker([point[0], point[1]], {
                 icon: L.divIcon({
-                    html: `<div style="background-color:green; color:white; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-weight:bold;">${index+1}</div>`,
+                    html: `<div style="background-color:green; color:white; border-radius:50%; width:${markerSize}px; height:${markerSize}px; display:flex; align-items:center; justify-content:center; font-weight:bold;">${index+1}</div>`,
                     className: 'corner-marker',
-                    iconSize: [20, 20]
+                    iconSize: [markerSize, markerSize]
                 })
             }).addTo(map);
         });
+
+        // Show feedback on mobile
+        if (isMobile) {
+            showToast('Last corner removed', 'warning');
+        }
     }
-    
+
     function saveBoundary() {
         if (cornerPoints.length < 3) {
             alert("You need at least 3 corner points to create a boundary.");
             return;
         }
-        
+
         // Create GeoJSON Polygon structure
         // Ensure the polygon is closed by adding the first point at the end
         const coordinates = cornerPoints.map(point => [point[1], point[0]]); // GeoJSON uses [lng, lat] order
         coordinates.push(coordinates[0]); // Close the polygon
-        
+
         const geoJSON = {
             type: "Polygon",
             coordinates: [coordinates]
         };
-        
+
         // Update hidden form field with JSON string
         boundaryInput.value = JSON.stringify(geoJSON);
-        
+
         // Submit the form
         boundaryForm.submit();
     }
-    
+
+    // Helper function to show mobile toast notifications
+    function showToast(message, type = 'info') {
+        // Only create toast on mobile
+        if (window.innerWidth >= 768) return;
+
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.style.cssText = 'position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 1050;';
+            document.body.appendChild(toastContainer);
+        }
+
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `toast align-items-center text-white bg-${type} border-0`;
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+
+        toastContainer.appendChild(toast);
+
+        // Show the toast
+        setTimeout(() => {
+            toast.classList.add('show');
+
+            // Remove after 2 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    toastContainer.removeChild(toast);
+                }, 300);
+            }, 2000);
+        }, 100);
+    }
+
     // --- Event Listeners ---
+    // Desktop UI
     recordButton.addEventListener('click', recordCorner);
     undoButton.addEventListener('click', undoLastCorner);
     saveButton.addEventListener('click', saveBoundary);
-    
+
+    // Mobile UI
+    mobileRecordButton.addEventListener('click', recordCorner);
+    mobileUndoButton.addEventListener('click', undoLastCorner);
+    mobileSaveButton.addEventListener('click', saveBoundary);
+
+    // Handle resize events to adjust UI
+    window.addEventListener('resize', function() {
+        // Redraw markers with appropriate size
+        const isMobile = window.innerWidth < 768;
+
+        // Skip if no cornerPoints yet
+        if (cornerPoints.length === 0) return;
+
+        // Remove and redraw numbered corner markers
+        map.eachLayer(layer => {
+            if (layer instanceof L.Marker && layer !== currentMarker) {
+                map.removeLayer(layer);
+            }
+        });
+
+        const markerSize = isMobile ? 30 : 22;
+        cornerPoints.forEach((point, index) => {
+            L.marker([point[0], point[1]], {
+                icon: L.divIcon({
+                    html: `<div style="background-color:green; color:white; border-radius:50%; width:${markerSize}px; height:${markerSize}px; display:flex; align-items:center; justify-content:center; font-weight:bold;">${index+1}</div>`,
+                    className: 'corner-marker',
+                    iconSize: [markerSize, markerSize]
+                })
+            }).addTo(map);
+        });
+    });
+
     // --- Initialize Mapping ---
     // Start position watching when the page loads
     startPositionWatch();
+
+    // Add Bootstrap toast CSS for mobile notifications
+    const toastStyle = document.createElement('style');
+    toastStyle.textContent = `
+        .toast {
+            width: auto;
+            max-width: 90%;
+            font-size: 0.9rem;
+            border-radius: 4px;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .toast.show {
+            opacity: 1;
+        }
+        .toast-body {
+            padding: 0.5rem 1rem;
+        }
+    `;
+    document.head.appendChild(toastStyle);
 });
 </script>
 {% endblock extra_js %}

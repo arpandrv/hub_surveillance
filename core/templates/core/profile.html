@@ -2,11 +2,18 @@
 
 {% block title %}Edit Profile{% endblock %}
 
-{% block heading %}Edit Your Profile{% endblock %}
+{% block heading %}
+<div class="d-flex align-items-center">
+    <span class="me-auto">Edit Profile</span>
+    <a href="{% url 'core:dashboard' %}" class="btn btn-sm btn-outline-secondary d-md-none">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+</div>
+{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-8 offset-md-2">
+<div class="row justify-content-center">
+    <div class="col-lg-7 col-md-9">
         {# Display messages #}
         {% if messages %}
             {% for message in messages %}
@@ -17,49 +24,131 @@
             {% endfor %}
         {% endif %}
 
-        <form method="post">
+        <!-- Mobile progress indicator -->
+        <div class="d-block d-md-none mb-3">
+            <div class="progress" style="height: 6px;" id="formProgressContainer">
+                <div class="progress-bar bg-primary" role="progressbar" style="width: 0%;"
+                    aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="profileFormProgress"></div>
+            </div>
+        </div>
+
+        <form method="post" id="profileForm">
             {% csrf_token %}
-            
-            <div class="card mb-4">
-                <div class="card-header">Account Information</div>
+
+            <div class="card mb-4 shadow-sm" style="border-radius: 0.5rem;">
+                <div class="card-header bg-light">
+                    <i class="bi bi-person-badge me-2"></i>Account Information
+                </div>
                 <div class="card-body">
                     {# Need to render manually or use crispy-forms for better Bootstrap integration #}
                     {# Simple rendering for now: #}
                     <div class="mb-3">
                         <label for="{{ user_form.username.id_for_label }}" class="form-label">Username</label>
-                        <input type="text" name="{{ user_form.username.name }}" id="{{ user_form.username.id_for_label }}" class="form-control {% if user_form.username.errors %}is-invalid{% endif %}" value="{{ user_form.username.value|default:'' }}" required>
-                         {% if user_form.username.errors %}<div class="invalid-feedback">{{ user_form.username.errors|striptags }}</div>{% endif %}
+                        <input type="text" name="{{ user_form.username.name }}" id="{{ user_form.username.id_for_label }}"
+                            class="form-control form-control-lg {% if user_form.username.errors %}is-invalid{% endif %}"
+                            value="{{ user_form.username.value|default:'' }}" required>
+                        {% if user_form.username.errors %}<div class="invalid-feedback">{{ user_form.username.errors|striptags }}</div>{% endif %}
                     </div>
-                     <div class="mb-3">
+                    <div class="mb-3">
                         <label for="{{ user_form.email.id_for_label }}" class="form-label">Email</label>
-                        <input type="email" name="{{ user_form.email.name }}" id="{{ user_form.email.id_for_label }}" class="form-control {% if user_form.email.errors %}is-invalid{% endif %}" value="{{ user_form.email.value|default:'' }}" required>
-                         {% if user_form.email.errors %}<div class="invalid-feedback">{{ user_form.email.errors|striptags }}</div>{% endif %}
+                        <input type="email" name="{{ user_form.email.name }}" id="{{ user_form.email.id_for_label }}"
+                            class="form-control form-control-lg {% if user_form.email.errors %}is-invalid{% endif %}"
+                            value="{{ user_form.email.value|default:'' }}" required>
+                        {% if user_form.email.errors %}<div class="invalid-feedback">{{ user_form.email.errors|striptags }}</div>{% endif %}
                     </div>
                 </div>
             </div>
 
-            <div class="card mb-4">
-                <div class="card-header">Grower Profile Information</div>
-                 <div class="card-body">
-                     <div class="mb-3">
+            <div class="card mb-4 shadow-sm" style="border-radius: 0.5rem;">
+                <div class="card-header bg-light">
+                    <i class="bi bi-building me-2"></i>Grower Profile Information
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
                         <label for="{{ profile_form.farm_name.id_for_label }}" class="form-label">Farm/Business Name</label>
-                        <input type="text" name="{{ profile_form.farm_name.name }}" id="{{ profile_form.farm_name.id_for_label }}" class="form-control {% if profile_form.farm_name.errors %}is-invalid{% endif %}" value="{{ profile_form.farm_name.value|default:'' }}" required>
-                         {% if profile_form.farm_name.errors %}<div class="invalid-feedback">{{ profile_form.farm_name.errors|striptags }}</div>{% endif %}
+                        <input type="text" name="{{ profile_form.farm_name.name }}" id="{{ profile_form.farm_name.id_for_label }}"
+                            class="form-control form-control-lg {% if profile_form.farm_name.errors %}is-invalid{% endif %}"
+                            value="{{ profile_form.farm_name.value|default:'' }}" required>
+                        {% if profile_form.farm_name.errors %}<div class="invalid-feedback">{{ profile_form.farm_name.errors|striptags }}</div>{% endif %}
                     </div>
-                     <div class="mb-3">
+                    <div class="mb-3">
                         <label for="{{ profile_form.contact_number.id_for_label }}" class="form-label">Contact Number</label>
-                        <input type="text" name="{{ profile_form.contact_number.name }}" id="{{ profile_form.contact_number.id_for_label }}" class="form-control {% if profile_form.contact_number.errors %}is-invalid{% endif %}" value="{{ profile_form.contact_number.value|default:'' }}">
-                         {% if profile_form.contact_number.errors %}<div class="invalid-feedback">{{ profile_form.contact_number.errors|striptags }}</div>{% endif %}
+                        <input type="tel" inputmode="tel" name="{{ profile_form.contact_number.name }}" id="{{ profile_form.contact_number.id_for_label }}"
+                            class="form-control form-control-lg {% if profile_form.contact_number.errors %}is-invalid{% endif %}"
+                            value="{{ profile_form.contact_number.value|default:'' }}">
+                        {% if profile_form.contact_number.errors %}<div class="invalid-feedback">{{ profile_form.contact_number.errors|striptags }}</div>{% endif %}
                     </div>
-                 </div>
+                </div>
             </div>
-            
-            <button type="submit" class="btn btn-success">Save Changes</button>
-        </form>
 
-        <hr class="my-4">
-        {# Link to change password #}
-        <p><a href="{% url 'core:password_change' %}" class="btn btn-warning">Change Password</a></p>
+            <!-- Desktop action buttons -->
+            <div class="d-none d-md-flex flex-wrap gap-2 mt-4">
+                <button type="submit" class="btn btn-success py-2 px-4">
+                    <i class="bi bi-check-circle me-2"></i>Save Changes
+                </button>
+                <a href="{% url 'core:password_change' %}" class="btn btn-warning py-2 px-4">
+                    <i class="bi bi-key me-2"></i>Change Password
+                </a>
+                <a href="{% url 'core:dashboard' %}" class="btn btn-outline-secondary py-2 px-4 ms-auto">
+                    <i class="bi bi-arrow-left me-2"></i>Back to Dashboard
+                </a>
+            </div>
+
+            <!-- Mobile sticky action buttons -->
+            <div class="d-block d-md-none fixed-bottom bg-white border-top p-2 mx-n3" style="margin-bottom: 0;">
+                <div class="container d-flex gap-2">
+                    <button type="submit" class="btn btn-success flex-grow-1 py-2">
+                        <i class="bi bi-check-circle me-1"></i>Save
+                    </button>
+                    <a href="{% url 'core:password_change' %}" class="btn btn-warning py-2">
+                        <i class="bi bi-key"></i><span class="d-none d-sm-inline ms-1">Password</span>
+                    </a>
+                </div>
+            </div>
+            <!-- Mobile bottom spacing for fixed footer -->
+            <div class="d-block d-md-none" style="height: 70px;"></div>
+        </form>
     </div>
 </div>
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle form progress indicator for mobile view
+        const profileForm = document.getElementById('profileForm');
+        const formInputs = profileForm.querySelectorAll('input[required]');
+        const progressBar = document.getElementById('profileFormProgress');
+
+        function updateProgress() {
+            let filledCount = 0;
+            formInputs.forEach(input => {
+                if (input.value.trim() !== '') {
+                    filledCount++;
+                }
+            });
+
+            const progressPercentage = (filledCount / formInputs.length) * 100;
+            progressBar.style.width = progressPercentage + '%';
+            progressBar.setAttribute('aria-valuenow', progressPercentage);
+
+            // Change color when complete
+            if (progressPercentage === 100) {
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-success');
+            } else {
+                progressBar.classList.remove('bg-success');
+                progressBar.classList.add('bg-primary');
+            }
+        }
+
+        // Initialize progress
+        updateProgress();
+
+        // Update progress on input change
+        formInputs.forEach(input => {
+            input.addEventListener('input', updateProgress);
+        });
+    });
+</script>
+{% endblock %}
 {% endblock %} 
