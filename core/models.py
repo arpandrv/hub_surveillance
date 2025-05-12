@@ -349,13 +349,6 @@ class Farm(models.Model):
         blank=True, 
         related_name='farms'
     )
-    location_description = models.CharField(
-        max_length=255, 
-        blank=True, 
-        null=True, 
-        help_text="e.g., \"Near Katherine River\", \"Smith Property via XYZ Road\""
-    )
-    # Fields for Geoscape API address results
     geoscape_address_id = models.CharField(
         max_length=50, 
         blank=True, 

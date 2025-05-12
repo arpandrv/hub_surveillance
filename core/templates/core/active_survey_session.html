@@ -484,7 +484,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- Function to add observation to list --- 
-    function addObservationToList(obsData) {
+    function addObservationToList(obsData, imageIds) {
         const list = document.getElementById('observation-list');
         const emptyMsg = document.getElementById('observation-list-empty');
         if (!list) return;
@@ -516,28 +516,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Add Image Thumbnails
-        console.log('Image data in observation:', obsData.images);
-        if (obsData.images && obsData.images.length > 0) {
+        console.log('Image data in observation:', obsData);
+        if (imageIds && imageIds.length > 0) {
             content += '<div class="mt-2 observation-images">';
-            obsData.images.forEach((img, index) => {
-                console.log(`Processing image ${index}:`, img);
+            imageIds.forEach((imgId, index) => {
+                console.log(`Processing image ${index}:`, imgId);
                 
                 // Make sure the URL is correctly formatted
-                let imgUrl = img.url;
-                if (imgUrl) {
-                    // For absolute URLs
-                    if (!imgUrl.startsWith('http')) {
-                        // Make sure URL has leading slash if needed
-                        if (!imgUrl.startsWith('/')) {
-                            imgUrl = '/' + imgUrl;
-                        }
-                        // Make absolute URL including origin
-                        imgUrl = window.location.origin + imgUrl;
-                    }
-                    
-                    console.log(`Using image URL: ${imgUrl}`);
-                    content += `<img src="${imgUrl}" alt="Observation image ${index + 1}" class="img-thumbnail" style="height: 50px; width: auto; margin-right: 5px;" onerror="this.onerror=null; this.src=''; console.error('Image failed to load:', '${imgUrl}');">`;
-                }
+                let imgUrl = `/media/images/${imgId}`;
+                
+                console.log(`Using image URL: ${imgUrl}`);
+                content += `<img src="${imgUrl}" alt="Observation image ${index + 1}" class="img-thumbnail" style="height: 50px; width: auto; margin-right: 5px;" onerror="this.onerror=null; this.src=''; console.error('Image failed to load:', '${imgUrl}');">`;
             });
             content += '</div>';
         }
@@ -551,35 +540,42 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Function to update UI elements (progress, finish button, counts) --- //
     function updateUI(newCounts = null) { // Accept optional counts object
         // Use live count or count from API response
-        let currentCompleted = newCounts ? newCounts.completed : completedPlants;
+        let currentCompleted = newCounts ? newCounts.completed_observations : completedPlants;
         let currentPests = newCounts ? newCounts.unique_pests : parseInt(uniquePestsCountSpan?.textContent || '0');
         let currentDiseases = newCounts ? newCounts.unique_diseases : parseInt(uniqueDiseasesCountSpan?.textContent || '0');
         
-        console.log(`Updating UI with counts: Completed=${currentCompleted}, Target=${targetPlants}, Pests=${currentPests}, Diseases=${currentDiseases}`);
-        
-        // Also update the global variable
-        completedPlants = currentCompleted;
-        
-        // Update progress bar text/width
-        const progressBar = document.querySelector('.progress-bar');
-        if (progressBar && targetPlants > 0) {
-            const percentage = Math.min(100, Math.floor((currentCompleted / targetPlants) * 100)); // Cap at 100%
-            console.log(`Progress percentage: ${percentage}%`);
-            progressBar.style.width = percentage + '%';
-            progressBar.textContent = `${currentCompleted}/${targetPlants}`;
+        console.log(`updateUI CALLED. Initial currentCompleted: ${currentCompleted}, Initial completedPlants: ${completedPlants}`);
+        if (newCounts) {
+            console.log(`updateUI: Using newCounts:`, newCounts);
+        }
+
+        // Update observation count display
+        const totalObservations = currentCompleted;
+        console.log(`updateUI: totalObservations = ${totalObservations}`);
+
+        if (finishBtn) {
+            console.log(`updateUI: finishBtn found. Currently disabled: ${finishBtn.disabled}, classList: ${JSON.stringify(Array.from(finishBtn.classList))}`);
             
-            // Add Bootstrap classes for color based on completion
-            progressBar.classList.remove('bg-success', 'bg-warning');
-            if (percentage >= 100) {
-                progressBar.classList.add('bg-success');
-            } else if (percentage > 50) {
-                 progressBar.classList.add('bg-warning');
+            if (totalObservations > 0 && !finishBtn.classList.contains('processing')) {
+                finishBtn.disabled = false;
+                console.log(`updateUI: Finish button ENABLED. Total observations: ${totalObservations}`);
+            } else {
+                // Keep it disabled if condition not met, and log why
+                finishBtn.disabled = true; 
+                if (totalObservations === 0) {
+                    console.log(`updateUI: Finish button REMAINS DISABLED (0 observations).`);
+                } else if (finishBtn.classList.contains('processing')) {
+                    console.log(`updateUI: Finish button REMAINS DISABLED (is 'processing').`);
+                } else {
+                    // This case should ideally not be hit if totalObservations > 0 and not processing
+                    console.log(`updateUI: Finish button REMAINS DISABLED (unexpected state). totalObservations: ${totalObservations}, processing: ${finishBtn.classList.contains('processing')}`);
+                }
             }
         } else {
-            console.warn("Could not update progress bar:", progressBar, targetPlants);
+            console.log('updateUI: finishBtn element NOT found.');
         }
-        
-        // Update count displays
+
+        // Update unique pest/disease counts display
         if(completedObsCountSpan) {
             completedObsCountSpan.textContent = currentCompleted;
             console.log(`Updated completedObsCountSpan to: ${currentCompleted}`);
@@ -591,12 +587,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if(uniquePestsCountSpan) uniquePestsCountSpan.textContent = currentPests;
         if(uniqueDiseasesCountSpan) uniqueDiseasesCountSpan.textContent = currentDiseases;
         
-        // Enable finish button if target met
-        if (finishBtn && targetPlants > 0 && currentCompleted >= targetPlants) {
-            finishBtn.disabled = false;
-        } else if (finishBtn) {
-            finishBtn.disabled = true;
-        }
         // Update observation count in list header
         if (observationCountSpan) {
              observationCountSpan.textContent = currentCompleted;
@@ -1300,78 +1290,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.log('Observation saved successfully:', result);
                     
                     // Update UI with the new observation
-                    if (saveStatus) {
-                        saveStatus.textContent = 'Saved successfully!';
-                        saveStatus.className = 'ms-2 text-success';
-                    }
+                    addObservationToList(result, result.image_ids);
+                    updateUI({ completed_observations: result.observation_count });
+
+                    // Clear any previous error messages
+                    if (saveStatus) saveStatus.textContent = '';
                     
-                    // Check if we got a valid result with observation data
-                    if (result.status === 'success' && result.observation) {
-                        console.log("Complete observation data:", result.observation);
-                        
-                        // Check for image data specifically
-                        if (result.observation.images) {
-                            console.log("Images in response:", result.observation.images);
-                            console.log("Number of images:", result.observation.images.length);
-                        } else {
-                            console.warn("No images in observation response");
-                        }
-                        
-                        // Add to list and update counts
-                        addObservationToList(result.observation);
-                        
-                        // Get the counts from the response
-                        if (result.counts) {
-                            console.log("Received counts from server:", result.counts);
-                            completedPlants = result.counts.completed; // Update the global counter
-                            updateUI(result.counts);
-                        } else {
-                            // If server didn't send counts, calculate locally
-                            completedPlants = document.querySelectorAll('#observation-list > li').length;
-                            console.log("Calculating counts locally:", completedPlants);
-                            updateUI({
-                                completed: completedPlants,
-                                unique_pests: parseInt(uniquePestsCountSpan?.textContent || '0'),
-                                unique_diseases: parseInt(uniqueDiseasesCountSpan?.textContent || '0')
-                            });
-                        }
-                        
-                        // Reset form and remove hidden file inputs
-                        form.reset();
-                        
-                        // Remove all file inputs that were added dynamically
-                        form.querySelectorAll('input[type="file"][style="display: none;"]').forEach(input => {
-                            console.log("Removing hidden file input:", input);
-                            input.remove();
-                        });
-                        
-                        // Clear stored draft ID
-                        delete form.dataset.draftId;
-                        
-                        // Clear image displays
-                        if (document.getElementById('gallery')) {
-                            document.getElementById('gallery').innerHTML = '';
-                        }
-                        if (document.getElementById('fileList')) {
-                            document.getElementById('fileList').innerHTML = '<p>No files selected!</p>';
-                        }
-                        
-                        // Reset the file input element
-                        const fileElem = document.getElementById('fileElem');
-                        if (fileElem) {
-                            fileElem.value = '';
-                        }
-                        
-                        setTimeout(() => { 
-                            if (saveStatus) saveStatus.textContent = ''; 
-                        }, 3000);
-                    } else {
-                        console.error('Unexpected response format:', result);
-                        if (saveStatus) {
-                            saveStatus.textContent = result.message || 'Error: Unexpected response format';
-                            saveStatus.className = 'ms-2 text-danger';
-                        }
+                    // Re-enable save button and clear status
+                    if (saveButton) {
+                        saveButton.disabled = false;
+                        saveButton.innerHTML = '<i class="bi bi-cloud-plus-fill me-1"></i> Save Observation';
+                        saveButton.classList.remove('btn-secondary');
+                        saveButton.classList.add('btn-success');
                     }
+                    if (saveStatus) {
+                        saveStatus.textContent = '';
+                    }
+
+                    // Fetch new recommendations if any observation affects them (optional)
+                    // Might be an overkill for every save, consider periodicity or specific triggers
+
                 } else {
                     // Handle error response
                     console.error('Error saving observation:', response.status);

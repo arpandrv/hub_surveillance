@@ -59,14 +59,13 @@
             <div class="col-md-6">
                 <p><strong>Total Plants:</strong> {{ farm.total_plants|default:"-" }}</p>
                 <!-- Plant Distribution Pattern removed as requested -->
-                <p><strong>Plant Types:</strong> 
+                <p><strong>Plant Types:</strong>
                     {% if farm.plant_type %}
                         <li>{{ farm.plant_type.name }}</li> {# Assuming only one for now #}
                     {% else %}
                         Not set
                     {% endif %}
                 </p>
-                <p><strong>Location:</strong> {{ farm.location_description|default:"General location not specified" }}</p>
             </div>
         </div>
     </div>

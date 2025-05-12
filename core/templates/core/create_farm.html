@@ -88,11 +88,6 @@
                             <i class="bi bi-exclamation-triangle me-1"></i>
                             <strong>Manual Boundary Mapping:</strong> If you plan to map the boundary later using GPS, please ensure you walk the perimeter and record the corners strictly <strong>in order</strong> (either clockwise or counter-clockwise). Recording corners out of sequence will result in an incorrect map.
                         </div>
-                        <label for="{{ form.location_description.id_for_label }}" class="form-label fw-bold">{{ form.location_description.label }}:</label>
-                        <textarea name="{{ form.location_description.name }}" id="{{ form.location_description.id_for_label }}" 
-                                  class="form-control {% if form.location_description.errors %}is-invalid{% endif %}" rows="2"
-                                  placeholder="{{ form.location_description.field.widget.attrs.placeholder }}">{{ form.location_description.value|default:'' }}</textarea>
-                        {% if form.location_description.errors %}<div class="invalid-feedback">{{ form.location_description.errors|striptags }}</div>{% endif %}
                     </div>
 
                     {# Size and Stocking Rate Section #}

@@ -88,15 +88,10 @@ class FarmForm(forms.ModelForm):
             'has_exact_address',      # Added model field
             'geoscape_address_id',    # Added model field
             'formatted_address',      # Added model field
-            'location_description',   # Existing field
             'size_hectares',
             'stocking_rate'
         ]
         widgets = {
-            'location_description': forms.Textarea(attrs={
-                'rows': 2,
-                'placeholder': 'e.g., "Near Katherine River", "Smith Property via XYZ Road"'
-            }),
             # Use hidden inputs for API data
             'geoscape_address_id': forms.HiddenInput(),
             'formatted_address': forms.HiddenInput(),
@@ -112,7 +107,6 @@ class FarmForm(forms.ModelForm):
             'geoscape_address_id': False,
             'formatted_address': False,
             'has_exact_address': False,
-            'location_description': False,  # Only required if no exact address
             'size_hectares': False,
             'stocking_rate': False,
         }
@@ -128,7 +122,6 @@ class FarmForm(forms.ModelForm):
         has_exact = cleaned_data.get('has_exact_address')
         geoscape_id = cleaned_data.get('geoscape_address_id')
         formatted_addr = cleaned_data.get('formatted_address')
-        location_desc = cleaned_data.get('location_description')
 
         if has_exact:
             # If checkbox is checked, require the hidden fields to have been populated by JS
@@ -139,8 +132,6 @@ class FarmForm(forms.ModelForm):
                     "An exact address was indicated, but address details were not selected. "
                     "Please use the address search."
                 )
-            # Clear location description if exact address is given
-            cleaned_data['location_description'] = ''
         else:
             # Clear exact address fields if general location is used
             cleaned_data['geoscape_address_id'] = None
