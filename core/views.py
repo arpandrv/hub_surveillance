@@ -54,7 +54,7 @@ from .services.geoscape_service import (
 )
 from .services.boundary_service import (
     create_mapping_token, get_mapping_url, validate_mapping_token,
-    invalidate_token, save_boundary_to_farm
+    invalidate_token, save_boundary_to_farm, fetch_and_save_cadastral_boundary
 )
 
 # Import new utils
