@@ -178,7 +178,7 @@ class CalculatorForm(forms.Form):
         # Get the initial data, if any
         initial = kwargs.get('initial', {})
 
-        # If a farm is selected in initial data, we can set defaults
+        # If a farm is selected in initial data, we can set defaults.
         if 'farm' in initial and initial['farm']:
             farm = initial['farm']
 
