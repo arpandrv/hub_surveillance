@@ -31,22 +31,22 @@ from .forms import (
     UserEditForm, GrowerProfileEditForm, CalculatorForm, ObservationForm
 )
 from .models import (
-    Farm, PlantType, PlantPart, Pest, SurveillanceRecord, 
+    Farm, PlantType, PlantPart, Pest, 
     Grower, Region, SurveillanceCalculation, BoundaryMappingToken, Disease, SurveySession, Observation, ObservationImage, User
 )
 
 # Import services
 from .services.user_service import create_user_with_profile
 from .services.farm_service import (
-    get_user_farms, get_farm_details, create_farm, 
-    update_farm, delete_farm, get_farm_surveillance_records
+    get_user_farms, get_farm_details, create_farm,
+    update_farm, delete_farm, get_farm_survey_sessions
 )
 from .services.calculation_service import (
     calculate_surveillance_effort, get_recommended_plant_parts,
     get_surveillance_frequency, save_calculation_to_database
 )
 from .services.surveillance_service import (
-    create_surveillance_record, get_surveillance_recommendations, 
+    create_observation, get_surveillance_recommendations,
     get_surveillance_stats
 )
 from .services.geoscape_service import (
@@ -1195,7 +1195,7 @@ def auto_save_observation_api(request):
         except SurveySession.DoesNotExist:
             logger.warning(f"User {request.user.username} attempted to access non-existent session {session_id}")
             return JsonResponse({
-                'status': 'error',
+                'status': 'error', 
                 'message': 'Survey session not found.'
             }, status=404)
 
@@ -1840,8 +1840,10 @@ def generate_test_observation_data(farm_id):
     # Extract min/max bounds
     lats = [pt[0] for pt in polygon_coords]
     lons = [pt[1] for pt in polygon_coords]
-    min_lat, max_lat = min(lats), max(lats)
-    min_lon, max_lon = min(lons), max(lons)
+    min_lat = min(lats)
+    max_lat = max(lats)
+    min_lon = min(lons)
+    max_lon = max(lons)
     center_lat = (min_lat + max_lat) / 2
     center_lon = (min_lon + max_lon) / 2
     

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
-    Grower, Farm, PlantType, PlantPart, Pest, Disease, 
-    SurveillanceRecord, Region, SurveillanceCalculation, BoundaryMappingToken,
+    Grower, Farm, PlantType, PlantPart, Pest, Disease,
+    Region, SurveillanceCalculation, BoundaryMappingToken,
     SeasonalStage, SurveySession, Observation, ObservationImage
 )
 
@@ -68,13 +68,8 @@ class FarmAdmin(admin.ModelAdmin):
     boundary_present.boolean = True
     boundary_present.short_description = 'Boundary Saved'
 
-@admin.register(SurveillanceRecord)
-class SurveillanceRecordAdmin(admin.ModelAdmin):
-    list_display = ('farm', 'performed_by', 'date_performed', 'plants_surveyed')
-    list_filter = ('farm__region', 'farm__plant_type', 'date_performed')
-    search_fields = ('farm__name', 'performed_by__user__username', 'notes')
-    filter_horizontal = ('plant_parts_checked', 'pests_found', 'diseases_found')
-    date_hierarchy = 'date_performed'
+# SurveillanceRecord model has been removed
+# All surveillance functionality now uses SurveySession and Observation models
 
 @admin.register(SurveillanceCalculation)
 class SurveillanceCalculationAdmin(admin.ModelAdmin):

@@ -4,76 +4,63 @@ from typing import Dict, Any, Optional, List, Tuple
 from django.utils import timezone
 from django.contrib.auth.models import User
 
-from ..models import Farm, SurveillanceRecord, PlantPart, Pest
+from ..models import Farm, PlantPart, Pest, SurveySession, Observation
 from .calculation_service import get_recommended_plant_parts
 
 logger = logging.getLogger(__name__)
 
 
-def create_surveillance_record(
-    farm: Farm, 
-    user: User, 
+def create_observation(
+    session: SurveySession,
     data: Dict[str, Any]
-) -> Tuple[Optional[SurveillanceRecord], Optional[str]]:
+) -> Tuple[Optional[Observation], Optional[str]]:
     """
-    Creates a new surveillance record.
-    
+    Creates a new observation within a survey session.
+
     Args:
-        farm: The Farm instance
-        user: The User who performed the surveillance
-        data: Dictionary containing surveillance details
-        
+        session: The SurveySession instance
+        data: Dictionary containing observation details
+
     Returns:
-        Tuple containing (record_instance, error_message)
+        Tuple containing (observation_instance, error_message)
     """
     try:
-        grower = user.grower_profile
-        
-        # Create record instance
-        record = SurveillanceRecord(
-            farm=farm,
-            performed_by=grower
+        # Create observation instance
+        observation = Observation(
+            session=session,
+            observation_time=timezone.now()
         )
-        
+
         # Set basic fields from data
-        for field in ['date_performed', 'plants_surveyed', 'notes']:
+        for field in ['latitude', 'longitude', 'gps_accuracy', 'notes', 'plant_sequence_number']:
             if field in data:
-                setattr(record, field, data[field])
-        
-        # If no date provided, use now
-        if not record.date_performed:
-            record.date_performed = timezone.now()
-        
-        # Validate plants_surveyed
-        total_plants = farm.total_plants()
-        if total_plants and record.plants_surveyed > total_plants:
-            return None, f"Number of plants surveyed ({record.plants_surveyed}) cannot exceed total plants ({total_plants})."
-        
+                setattr(observation, field, data[field])
+
         # Save record first to allow M2M relationships
-        record.save()
-        
-        # Set plant parts checked
-        if 'plant_parts_checked' in data:
-            if isinstance(data['plant_parts_checked'], list):
+        observation.save()
+
+        # Set pests observed
+        if 'pests_observed' in data:
+            if isinstance(data['pests_observed'], list):
                 # If we got a list of IDs
-                record.plant_parts_checked.set(data['plant_parts_checked'])
+                observation.pests_observed.set(data['pests_observed'])
             else:
                 # If we got a queryset
-                record.plant_parts_checked.set(data['plant_parts_checked'])
-        
-        # Set pests found
-        if 'pests_found' in data:
-            if isinstance(data['pests_found'], list):
+                observation.pests_observed.set(data['pests_observed'])
+
+        # Set diseases observed
+        if 'diseases_observed' in data:
+            if isinstance(data['diseases_observed'], list):
                 # If we got a list of IDs
-                record.pests_found.set(data['pests_found'])
+                observation.diseases_observed.set(data['diseases_observed'])
             else:
                 # If we got a queryset
-                record.pests_found.set(data['pests_found'])
-        
-        return record, None
-    
+                observation.diseases_observed.set(data['diseases_observed'])
+
+        return observation, None
+
     except Exception as e:
-        logger.exception(f"Error creating surveillance record for farm {farm.id}: {e}")
+        logger.exception(f"Error creating observation for session {session.session_id}: {e}")
         return None, f"An unexpected error occurred: {e}"
 
 
@@ -117,38 +104,43 @@ def get_surveillance_recommendations(farm: Farm) -> Dict[str, Any]:
 def get_surveillance_stats(farm: Farm) -> Dict[str, Any]:
     """
     Gets surveillance statistics for a farm.
-    
+
     Args:
         farm: The Farm instance
-        
+
     Returns:
         Dictionary containing statistics
     """
-    # Get total number of surveillance records
-    total_records = SurveillanceRecord.objects.filter(farm=farm).count()
-    
-    # Get total plants inspected
-    total_inspected = SurveillanceRecord.objects.filter(farm=farm).values_list('plants_surveyed', flat=True)
-    total_inspected_sum = sum(total_inspected) if total_inspected else 0
-    
-    # Get records from last 30 days
-    thirty_days_ago = timezone.now() - timezone.timedelta(days=30)
-    recent_records = SurveillanceRecord.objects.filter(
-        farm=farm,
-        date_performed__gte=thirty_days_ago
+    # Get total number of survey sessions
+    total_sessions = SurveySession.objects.filter(farm=farm, status='completed').count()
+
+    # Get total observations made
+    total_observations = Observation.objects.filter(
+        session__farm=farm,
+        session__status='completed',
+        status='completed'
     ).count()
-    
+
+    # Get sessions from last 30 days
+    thirty_days_ago = timezone.now() - timezone.timedelta(days=30)
+    recent_sessions = SurveySession.objects.filter(
+        farm=farm,
+        status='completed',
+        end_time__gte=thirty_days_ago
+    ).count()
+
     # Get most common pests found
     from django.db.models import Count
     common_pests = Pest.objects.filter(
-        surveillance_records__farm=farm
+        observations__session__farm=farm,
+        observations__status='completed'
     ).annotate(
-        occurrence_count=Count('surveillance_records')
+        occurrence_count=Count('observations')
     ).order_by('-occurrence_count')[:5]
-    
+
     return {
-        'total_records': total_records,
-        'total_inspected': total_inspected_sum,
-        'recent_records': recent_records,
+        'total_sessions': total_sessions,
+        'total_observations': total_observations,
+        'recent_sessions': recent_sessions,
         'common_pests': common_pests
     }

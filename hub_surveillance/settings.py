@@ -30,10 +30,10 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-fallback-key-if-not-s
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['e8d4-122-150-234-194.ngrok-free.app']
+ALLOWED_HOSTS = []
 
 # Trust the ngrok domain for CSRF checks during development
-CSRF_TRUSTED_ORIGINS = ['https://e8d4-122-150-234-194.ngrok-free.app']
+# CSRF_TRUSTED_ORIGINS = ['https://e8d4-122-150-234-194.ngrok-free.app']
 
 
 # Application definition

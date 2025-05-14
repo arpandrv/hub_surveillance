@@ -19,7 +19,7 @@ class MultipleFileInput(FileInput):
         return context
 
 from .models import (
-    Grower, Farm, PlantPart, Pest, SurveillanceRecord, Region,
+    Grower, Farm, PlantPart, Pest, Region,
     SEASON_CHOICES, CONFIDENCE_CHOICES, Disease, Observation, ObservationImage
 )
 

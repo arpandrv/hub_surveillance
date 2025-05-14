@@ -3,7 +3,7 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 
 from django.contrib.auth.models import User
-from ..models import Farm, Grower, PlantType, SurveillanceRecord
+from ..models import Farm, Grower, PlantType, SurveySession, Observation
 from .geoscape_service import fetch_cadastral_boundary
 from .boundary_service import fetch_and_save_cadastral_boundary
 
@@ -160,29 +160,29 @@ def delete_farm(farm_id: int, user: User) -> Tuple[bool, Optional[str]]:
         return False, f"An unexpected error occurred: {e}"
 
 
-def get_farm_surveillance_records(farm_id: int, user: User, limit: int = None) -> Tuple[Optional[List[SurveillanceRecord]], Optional[str]]:
+def get_farm_survey_sessions(farm_id: int, user: User, limit: int = None) -> Tuple[Optional[List[SurveySession]], Optional[str]]:
     """
-    Retrieves surveillance records for a farm.
-    
+    Retrieves survey sessions for a farm.
+
     Args:
         farm_id: The ID of the farm
         user: The User instance for permission check
-        limit: Optional limit on number of records to return
-        
+        limit: Optional limit on number of sessions to return
+
     Returns:
-        Tuple containing (records_list, error_message)
+        Tuple containing (sessions_list, error_message)
     """
     # First get the farm with permission check
     farm, error = get_farm_details(farm_id, user)
     if error:
         return None, error
-    
+
     try:
-        records = SurveillanceRecord.objects.filter(farm=farm).order_by('-date_performed')
+        sessions = SurveySession.objects.filter(farm=farm).order_by('-start_time')
         if limit:
-            records = records[:limit]
-        return list(records), None
-    
+            sessions = sessions[:limit]
+        return list(sessions), None
+
     except Exception as e:
-        logger.exception(f"Error retrieving surveillance records for farm {farm_id}: {e}")
+        logger.exception(f"Error retrieving survey sessions for farm {farm_id}: {e}")
         return None, f"An unexpected error occurred: {e}"
