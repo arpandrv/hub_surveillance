@@ -7,7 +7,7 @@
 {% block content %}
 <div class="card shadow mb-4">
     <div class="card-header text-white bg-gradient d-flex justify-content-between align-items-center" style="background-color: #6c757d;">
-        <h5 class="mb-0">All Recorded Activities</h5>
+        <h5 class="mb-0">All Completed Survey Sessions</h5>
         <button class="btn btn-sm btn-light d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#recordFilters" aria-expanded="false">
             <i class="bi bi-funnel-fill"></i> Filter
         </button>
@@ -20,7 +20,9 @@
                 <label class="form-label small">Farm:</label>
                 <select class="form-select form-select-sm">
                     <option selected>All Farms</option>
-                    <!-- Farm options would be populated here -->
+                    {% for farm in farms %}
+                        <option value="{{ farm.id }}">{{ farm.name }} ({{ farm.session_count }})</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="d-flex gap-2">
@@ -31,101 +33,95 @@
     </div>
 
     <div class="card-body p-0">
-        {% if records %}
-            <!-- Desktop Table View -->
-            <div class="table-responsive d-none d-md-block">
-                <table class="table table-striped table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Date</th>
-                            <th>Farm</th>
-                            <th>Plants Surveyed</th>
-                            <th>Parts Checked</th>
-                            <th>Pests Found</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for record in records %}
-                        <tr>
-                            <td>{{ record.date_performed|date:"Y-m-d H:i" }}</td>
-                            <td><a href="{% url 'core:farm_detail' record.farm.id %}" class="text-decoration-none fw-medium">{{ record.farm.name }}</a></td>
-                            <td>{{ record.plants_surveyed }}</td>
-                            <td>
-                                {% for part in record.plant_parts_checked.all %}
-                                    <span class="badge bg-light text-dark">{{ part.name }}</span>{% if not forloop.last %} {% endif %}
-                                {% empty %}
-                                    <span class="text-muted">-</span>
-                                {% endfor %}
-                            </td>
-                            <td>
-                                {% for pest in record.pests_found.all %}
-                                    <span class="badge bg-warning text-dark">{{ pest.name }}</span>{% if not forloop.last %} {% endif %}
-                                {% empty %}
-                                    <span class="badge bg-success">None found</span>
-                                {% endfor %}
-                            </td>
-                            <td class="text-end">
-                                <a href="#" class="btn btn-outline-primary btn-sm disabled">View</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        {% if sessions_by_farm %}
+            <!-- Group by Farm Section (Desktop) -->
+            <div class="d-none d-md-block p-3">
+                {% for farm, sessions in sessions_by_farm.items %}
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <a href="{% url 'core:farm_detail' farm.id %}" class="text-decoration-none">
+                                {{ farm.name }}
+                            </a>
+                            <span class="badge bg-primary ms-2">{{ farm.session_count }} session{{ farm.session_count|pluralize }}</span>
+                        </h5>
+
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Observations</th>
+                                        <th>Duration</th>
+                                        <th>Status</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for session in sessions %}
+                                    <tr>
+                                        <td>{{ session.end_time|date:"Y-m-d" }}</td>
+                                        <td>{{ session.observation_count }} observations</td>
+                                        <td>{{ session.duration|default:"N/A" }} min</td>
+                                        <td><span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span></td>
+                                        <td class="text-end">
+                                            <a href="{% url 'core:survey_session_detail' session.session_id %}" class="btn btn-outline-primary btn-sm">
+                                                <i class="bi bi-eye-fill me-1"></i> View
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endfor %}
             </div>
 
-            <!-- Mobile Card View -->
+            <!-- Mobile Card View (No grouping) -->
             <div class="d-md-none">
-                {% for record in records %}
+                {% for session in completed_sessions %}
                 <div class="card border-0 border-bottom rounded-0">
                     <div class="card-body pb-3 pt-3">
                         <div class="d-flex justify-content-between align-items-start mb-2">
                             <h6 class="card-title mb-0">
-                                <a href="{% url 'core:farm_detail' record.farm.id %}" class="text-decoration-none stretched-link">
-                                    {{ record.farm.name }}
+                                <a href="{% url 'core:farm_detail' session.farm.id %}" class="text-decoration-none">
+                                    {{ session.farm.name }}
                                 </a>
                             </h6>
-                            <span class="text-muted small">{{ record.date_performed|date:"M d, Y" }}</span>
+                            <span class="text-muted small">{{ session.end_time|date:"M d, Y" }}</span>
                         </div>
 
                         <div class="mb-2">
                             <div class="d-flex justify-content-between mb-1">
-                                <span class="text-muted small">Plants surveyed:</span>
-                                <span class="fw-medium">{{ record.plants_surveyed }}</span>
+                                <span class="text-muted small">Observations:</span>
+                                <span class="fw-medium">{{ session.observation_count }}</span>
+                            </div>
+
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted small">Duration:</span>
+                                <span class="fw-medium">{{ session.duration|default:"N/A" }} minutes</span>
                             </div>
 
                             <div class="mb-1">
-                                <span class="text-muted small">Parts checked:</span>
+                                <span class="text-muted small">Status:</span>
                                 <div class="mt-1">
-                                    {% for part in record.plant_parts_checked.all %}
-                                        <span class="badge bg-light text-dark mb-1">{{ part.name }}</span>{% if not forloop.last %} {% endif %}
-                                    {% empty %}
-                                        <span class="text-muted">None</span>
-                                    {% endfor %}
-                                </div>
-                            </div>
-
-                            <div class="mb-1">
-                                <span class="text-muted small">Pests found:</span>
-                                <div class="mt-1">
-                                    {% for pest in record.pests_found.all %}
-                                        <span class="badge bg-warning text-dark mb-1">{{ pest.name }}</span>{% if not forloop.last %} {% endif %}
-                                    {% empty %}
-                                        <span class="badge bg-success">None found</span>
-                                    {% endfor %}
+                                    <span class="badge bg-{{ session.get_status_badge_class }}">{{ session.get_status_display }}</span>
                                 </div>
                             </div>
                         </div>
 
                         <div class="d-flex gap-2 mt-3">
-                            <a href="#" class="btn btn-sm btn-outline-primary w-100 disabled">View Details</a>
+                            <a href="{% url 'core:survey_session_detail' session.session_id %}" class="btn btn-sm btn-outline-primary w-100">
+                                <i class="bi bi-eye-fill me-1"></i> View Details
+                            </a>
                         </div>
                     </div>
                 </div>
                 {% endfor %}
             </div>
 
-            <!-- Pagination -->
+            <!-- Pagination (if needed) -->
+            {% if completed_sessions.count > 20 %}
             <nav aria-label="Record pagination" class="my-3 px-3">
                 <ul class="pagination pagination-sm justify-content-center mb-0">
                     <li class="page-item disabled">
@@ -137,14 +133,15 @@
                     </li>
                 </ul>
             </nav>
+            {% endif %}
 
         {% else %}
             <div class="card-body text-center py-5">
                 <div class="text-muted mb-3">
                     <i class="bi bi-clipboard-data fs-1"></i>
                 </div>
-                <h5>No Records Yet</h5>
-                <p class="text-muted">You haven't recorded any surveillance activities yet.</p>
+                <h5>No Completed Sessions Yet</h5>
+                <p class="text-muted">You haven't completed any survey sessions yet.</p>
                 <a href="{% url 'core:myfarms' %}" class="btn btn-primary">Select a Farm to Start</a>
             </div>
         {% endif %}

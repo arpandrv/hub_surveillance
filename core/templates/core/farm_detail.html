@@ -458,50 +458,73 @@
     </div>
 </div>
 
-<!-- Recent Surveillance Records Card -->
+<!-- Recent Survey Sessions Card -->
 <div class="card shadow mb-4">
     <div class="card-header bg-light d-flex flex-column flex-md-row justify-content-between align-items-center gap-2">
-        <h5 class="mb-0">Recent Surveillance Records</h5>
-        <a href="{% url 'core:record_list' %}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-list-ul me-1"></i> View All Records
+        <h5 class="mb-0">Recent Survey Sessions</h5>
+        <a href="{% url 'core:survey_session_list' farm.id %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-list-ul me-1"></i> View All Sessions
         </a>
     </div>
 
     <div class="card-body p-0">
-        {% if surveillance_records %}
+        <!-- Display In-Progress Session If Exists -->
+        {% if latest_in_progress %}
+        <div class="alert alert-warning m-3" role="alert">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="alert-heading mb-1">Unfinished Survey Session</h5>
+                    <p class="mb-0">Started: {{ latest_in_progress.start_time|date:"M d, Y, g:i A" }}</p>
+                    <p class="mb-0 small">
+                        {{ latest_in_progress.observation_count }} observation{{ latest_in_progress.observation_count|pluralize }} recorded
+                        {% if latest_in_progress.target_plants_surveyed %}
+                        ({{ latest_in_progress.get_progress_percentage }}% complete)
+                        {% endif %}
+                    </p>
+                </div>
+                <a href="{% url 'core:active_survey_session' latest_in_progress.session_id %}" class="btn btn-warning">
+                    <i class="bi bi-arrow-repeat me-1"></i> Resume Session
+                </a>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if completed_sessions %}
             <!-- Desktop Table View -->
             <div class="table-responsive d-none d-md-block">
                 <table class="table table-striped table-hover align-middle mb-0">
                     <thead class="table-light">
                         <tr>
                             <th>Date</th>
-                            <th>Plants Surveyed</th>
-                            <th>Parts Checked</th>
-                            <th>Pests Found</th>
+                            <th>Observations</th>
+                            <th>Duration</th>
+                            <th>Findings</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for record in surveillance_records|slice:":5" %}
+                        {% for session in completed_sessions %}
                         <tr>
-                            <td>{{ record.date_performed|date:"Y-m-d" }}</td>
-                            <td>{{ record.plants_surveyed }}</td>
+                            <td>{{ session.end_time|date:"Y-m-d" }}</td>
+                            <td>{{ session.observation_count }} observations</td>
+                            <td>{{ session.duration|default:"N/A" }} min</td>
                             <td>
-                                {% for part in record.plant_parts_checked.all %}
-                                    <span class="badge bg-light text-dark">{{ part.name }}</span>{% if not forloop.last %} {% endif %}
-                                {% empty %}
-                                    <span class="text-muted">-</span>
-                                {% endfor %}
-                            </td>
-                            <td>
-                                {% for pest in record.pests_found.all %}
-                                    <span class="badge bg-warning text-dark">{{ pest.name }}</span>{% if not forloop.last %} {% endif %}
-                                {% empty %}
-                                    <span class="badge bg-success">None found</span>
-                                {% endfor %}
+                                {% with pest_count=session.get_unique_pests.count disease_count=session.get_unique_diseases.count %}
+                                    {% if pest_count > 0 or disease_count > 0 %}
+                                        <span class="badge bg-warning text-dark">
+                                            {% if pest_count > 0 %}{{ pest_count }} pest{{ pest_count|pluralize }}{% endif %}
+                                            {% if pest_count > 0 and disease_count > 0 %}, {% endif %}
+                                            {% if disease_count > 0 %}{{ disease_count }} disease{{ disease_count|pluralize }}{% endif %}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-success">No issues found</span>
+                                    {% endif %}
+                                {% endwith %}
                             </td>
                             <td class="text-end">
-                                <a href="#" class="btn btn-outline-primary btn-sm disabled">View</a>
+                                <a href="{% url 'core:survey_session_detail' session.session_id %}" class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-eye-fill me-1"></i> View
+                                </a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -511,50 +534,52 @@
 
             <!-- Mobile Card View -->
             <div class="d-md-none">
-                {% for record in surveillance_records|slice:":5" %}
+                {% for session in completed_sessions %}
                 <div class="card border-0 border-bottom rounded-0">
                     <div class="card-body pb-3 pt-3">
                         <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="badge bg-primary">{{ record.plants_surveyed }} plants</span>
-                            <span class="text-muted small">{{ record.date_performed|date:"M d, Y" }}</span>
+                            <span class="badge bg-primary">{{ session.observation_count }} observations</span>
+                            <span class="text-muted small">{{ session.end_time|date:"M d, Y" }}</span>
                         </div>
 
-                        <div class="mb-1">
-                            <span class="text-muted small">Parts checked:</span>
-                            <div class="mt-1">
-                                {% for part in record.plant_parts_checked.all %}
-                                    <span class="badge bg-light text-dark mb-1">{{ part.name }}</span>{% if not forloop.last %} {% endif %}
-                                {% empty %}
-                                    <span class="text-muted">None</span>
-                                {% endfor %}
-                            </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-muted small">Duration:</span>
+                            <span class="fw-medium">{{ session.duration|default:"N/A" }} min</span>
                         </div>
 
                         <div class="mb-2">
-                            <span class="text-muted small">Pests found:</span>
+                            <span class="text-muted small">Findings:</span>
                             <div class="mt-1">
-                                {% for pest in record.pests_found.all %}
-                                    <span class="badge bg-warning text-dark mb-1">{{ pest.name }}</span>{% if not forloop.last %} {% endif %}
-                                {% empty %}
-                                    <span class="badge bg-success">None found</span>
-                                {% endfor %}
+                                {% with pest_count=session.get_unique_pests.count disease_count=session.get_unique_diseases.count %}
+                                    {% if pest_count > 0 or disease_count > 0 %}
+                                        <span class="badge bg-warning text-dark">
+                                            {% if pest_count > 0 %}{{ pest_count }} pest{{ pest_count|pluralize }}{% endif %}
+                                            {% if pest_count > 0 and disease_count > 0 %}, {% endif %}
+                                            {% if disease_count > 0 %}{{ disease_count }} disease{{ disease_count|pluralize }}{% endif %}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-success">No issues found</span>
+                                    {% endif %}
+                                {% endwith %}
                             </div>
                         </div>
 
                         <div class="d-flex mt-2">
-                            <a href="#" class="btn btn-sm btn-outline-primary w-100 disabled">View Details</a>
+                            <a href="{% url 'core:survey_session_detail' session.session_id %}" class="btn btn-sm btn-outline-primary w-100">
+                                <i class="bi bi-eye-fill me-1"></i> View Details
+                            </a>
                         </div>
                     </div>
                 </div>
                 {% endfor %}
             </div>
-        {% else %}
+        {% elif not latest_in_progress %}
             <div class="card-body text-center py-4">
                 <div class="text-muted mb-3">
                     <i class="bi bi-clipboard-data fs-1"></i>
                 </div>
-                <h5>No Records Yet</h5>
-                <p class="text-muted">No surveillance records found for this farm yet.</p>
+                <h5>No Survey Sessions Yet</h5>
+                <p class="text-muted">No survey sessions found for this farm yet.</p>
                 <a href="{% url 'core:start_survey_session' farm.id %}" class="btn btn-primary">
                     <i class="bi bi-play-circle me-1"></i> Start First Survey Session
                 </a>

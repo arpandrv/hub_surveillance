@@ -48,19 +48,22 @@ class Grower(models.Model):
     def __str__(self):
         return f"{self.user.username}'s Profile ({self.farm_name})"
     
-    def recent_surveillance_records(self, limit=5):
+    def recent_survey_sessions(self, limit=5):
         """
-        Returns the most recent surveillance records across all farms.
-        
+        Returns the most recent completed survey sessions across all farms.
+
         Args:
-            limit (int): Maximum number of records to return
-            
+            limit (int): Maximum number of sessions to return
+
         Returns:
-            QuerySet: Recent SurveillanceRecord instances, ordered by date
+            QuerySet: Recent SurveySession instances, ordered by end time
         """
-        return SurveillanceRecord.objects.filter(
-            performed_by=self
-        ).order_by('-date_performed')[:limit]
+        from django.db.models import Prefetch
+
+        return SurveySession.objects.filter(
+            farm__owner=self,
+            status='completed'
+        ).select_related('farm').order_by('-end_time')[:limit]
     
     def total_plants_managed(self):
         """
@@ -418,29 +421,29 @@ class Farm(models.Model):
     
     def last_surveillance_date(self):
         """
-        Return the date of the most recent surveillance record.
-        
+        Return the date of the most recent completed survey session.
+
         Returns:
             datetime or None: Date of last surveillance or None if no records
         """
-        latest = self.surveillance_records.order_by('-date_performed').first()
-        return latest.date_performed if latest else None
-        
+        latest = self.survey_sessions.filter(status='completed').order_by('-end_time').first()
+        return latest.end_time if latest else None
+
     def days_since_last_surveillance(self):
         """
-        Calculate the number of days since the last surveillance check.
-        
+        Calculate the number of days since the last completed survey session.
+
         Returns:
             int or None: Number of days since last check, or None if never checked
         """
         last_date = self.last_surveillance_date()
         if not last_date:
             return None
-            
+
         # Ensure we're working with date objects
         if isinstance(last_date, datetime):
             last_date = last_date.date()
-            
+
         today = timezone.now().date()
         return (today - last_date).days
     
@@ -526,109 +529,8 @@ class Farm(models.Model):
         }
 
 
-class SurveillanceRecord(models.Model):
-    """
-    Represents a record of a surveillance activity performed on a farm.
-    
-    This model is used for the original surveillance tracking functionality
-    before the more detailed SurveySession/Observation system was implemented.
-    It's maintained for backward compatibility with existing data.
-    """
-    farm = models.ForeignKey(
-        Farm, 
-        on_delete=models.CASCADE, 
-        related_name='surveillance_records',
-        db_index=True
-    )
-    performed_by = models.ForeignKey(
-        Grower, 
-        on_delete=models.CASCADE, 
-        related_name='surveillance_records',
-        db_index=True
-    )
-    date_performed = models.DateTimeField(
-        default=timezone.now,
-        db_index=True
-    )
-    plants_surveyed = models.IntegerField()
-    plant_parts_checked = models.ManyToManyField(
-        PlantPart, 
-        related_name='surveillance_records', 
-        blank=True
-    )
-    pests_found = models.ManyToManyField(
-        Pest, 
-        related_name='surveillance_records', 
-        blank=True
-    )
-    diseases_found = models.ManyToManyField(
-        Disease, 
-        related_name='surveillance_records', 
-        blank=True
-    )
-    notes = models.TextField(blank=True, null=True)
-    
-    class Meta:
-        ordering = ['-date_performed']
-        verbose_name = "Surveillance Record"
-        verbose_name_plural = "Surveillance Records"
-        indexes = [
-            models.Index(fields=['farm', '-date_performed']),
-            models.Index(fields=['performed_by', '-date_performed']),
-        ]
-
-    def __str__(self):
-        return f"Survey at {self.farm.name} on {self.date_performed.strftime('%Y-%m-%d')}"
-
-    def coverage_percentage(self):
-        """
-        Calculate what percentage of the farm was surveyed.
-        
-        Returns:
-            float or None: Percentage of plants surveyed or None if cannot calculate
-        """
-        total_plants = self.farm.total_plants()
-        if not total_plants:
-            return None
-        return round((self.plants_surveyed / total_plants) * 100, 1)
-        
-    def has_findings(self):
-        """
-        Check if any pests or diseases were found during surveillance.
-        
-        Returns:
-            bool: True if any pests or diseases were found
-        """
-        return self.pests_found.exists() or self.diseases_found.exists()
-        
-    def create_summary(self):
-        """
-        Create a textual summary of the surveillance findings.
-        
-        Returns:
-            str: Summary of surveillance findings
-        """
-        pest_count = self.pests_found.count()
-        disease_count = self.diseases_found.count()
-        parts_checked = self.plant_parts_checked.count()
-        
-        summary = f"Surveyed {self.plants_surveyed} plants"
-        if parts_checked > 0:
-            part_names = ", ".join([p.name for p in self.plant_parts_checked.all()])
-            summary += f", checking {part_names}"
-        
-        if pest_count > 0 or disease_count > 0:
-            summary += ". Found "
-            findings = []
-            if pest_count > 0:
-                findings.append(f"{pest_count} pest{'s' if pest_count != 1 else ''}")
-            if disease_count > 0:
-                findings.append(f"{disease_count} disease{'s' if disease_count != 1 else ''}")
-            summary += " and ".join(findings)
-        else:
-            summary += ". No pests or diseases found"
-            
-        return summary
+# SurveillanceRecord model has been removed
+# All surveillance functionality now uses SurveySession and Observation models
 
 
 class SurveillanceCalculation(models.Model):

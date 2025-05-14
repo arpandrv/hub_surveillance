@@ -5,6 +5,28 @@
 {% block heading %}{# Custom heading below #}{% endblock %}
 
 {% block content %}
+<!-- Delete Session Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Delete Incomplete Survey Session</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the incomplete survey session from <span id="sessionDate"></span>?</p>
+                <p class="text-danger">This action cannot be undone and all observations in this session will be lost.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteSessionForm" method="post" action="">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Delete Session</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3 class="mb-0">Survey Sessions</h3>
     <a href="{% url 'core:start_survey_session' farm.id %}" class="btn btn-success">
@@ -50,10 +72,18 @@
                         </div>
 
                         <div class="d-grid gap-2">
-                            {% if session.status == 'in_progress' %}
-                            <a href="{% url 'core:active_survey_session' session.session_id %}" class="btn btn-warning">
-                                <i class="bi bi-pencil-fill me-1"></i> Resume Session
-                            </a>
+                            {% if session.status == 'in_progress' or session.status == 'not_started' %}
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'core:active_survey_session' session.session_id %}" class="btn btn-warning flex-grow-1">
+                                    <i class="bi bi-pencil-fill me-1"></i> Resume
+                                </a>
+                                <button type="button" class="btn btn-outline-danger"
+                                        data-bs-toggle="modal" data-bs-target="#deleteModal"
+                                        data-session-id="{{ session.session_id }}"
+                                        data-session-date="{{ session.start_time|date:'M j, Y' }}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
                             {% else %}
                             <a href="{% url 'core:survey_session_detail' session.session_id %}" class="btn btn-info">
                                 <i class="bi bi-eye-fill me-1"></i> View Report
@@ -87,10 +117,18 @@
                                 <td>{{ session.observation_count }}</td>
                                 <td>{{ session.surveyor.username }}</td>
                                 <td>
-                                    {% if session.status == 'in_progress' %}
-                                        <a href="{% url 'core:active_survey_session' session.session_id %}" class="btn btn-sm btn-warning">
-                                            <i class="bi bi-pencil-fill me-1"></i> Resume
-                                        </a>
+                                    {% if session.status == 'in_progress' or session.status == 'not_started' %}
+                                        <div class="btn-group">
+                                            <a href="{% url 'core:active_survey_session' session.session_id %}" class="btn btn-sm btn-warning">
+                                                <i class="bi bi-pencil-fill me-1"></i> Resume
+                                            </a>
+                                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                                    data-bs-toggle="modal" data-bs-target="#deleteModal"
+                                                    data-session-id="{{ session.session_id }}"
+                                                    data-session-date="{{ session.start_time|date:'M j, Y' }}">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
                                     {% else %}
                                         <a href="{% url 'core:survey_session_detail' session.session_id %}" class="btn btn-sm btn-info" title="View session details">
                                             <i class="bi bi-eye-fill me-1"></i> View Details
@@ -116,4 +154,29 @@
         <i class="bi bi-plus-circle me-1"></i> New Survey Session
     </a>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle delete modal setup
+    const deleteModal = document.getElementById('deleteModal');
+    if (deleteModal) {
+        deleteModal.addEventListener('show.bs.modal', function(event) {
+            // Button that triggered the modal
+            const button = event.relatedTarget;
+            // Extract info from data-* attributes
+            const sessionId = button.getAttribute('data-session-id');
+            const sessionDate = button.getAttribute('data-session-date');
+
+            // Update the modal's content
+            document.getElementById('sessionDate').textContent = sessionDate;
+
+            // Update form action URL
+            const form = document.getElementById('deleteSessionForm');
+            form.action = `/sessions/${sessionId}/delete/`;
+        });
+    }
+});
+</script>
+{% endblock %}

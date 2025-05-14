@@ -248,17 +248,29 @@ def farm_detail_view(request, farm_id):
     surveillance_frequency = get_surveillance_frequency(current_stage, farm) # Still uses stage name, might need update if frequency depends on DB stage
     last_surveillance_date = farm.last_surveillance_date()
     next_due_date = farm.next_due_date() # Uses simple 7-day logic for now
-    surveillance_records = farm.surveillance_records.order_by('-date_performed')[:5] # Get latest 5 records
-    
+
+    # Get completed survey sessions for this farm
+    completed_sessions = SurveySession.objects.filter(
+        farm=farm,
+        status='completed'
+    ).order_by('-end_time')[:5]
+
+    # Get latest in-progress session if exists
+    latest_in_progress = SurveySession.objects.filter(
+        farm=farm,
+        status__in=['not_started', 'in_progress']
+    ).order_by('-start_time').first()
+
     context = {
         'farm': farm,
         'current_stage': current_stage, # Pass stage name
         'month_used_for_stage': month_used_for_stage, # Pass the month used for clarity
         'calculation_results': calculation_results, # Results based on current stage & default confidence
-        'surveillance_records': surveillance_records,
+        'completed_sessions': completed_sessions,
+        'latest_in_progress': latest_in_progress,
         'priority_pests': priority_pests,
         'priority_diseases': priority_diseases,
-        'recommended_parts': recommended_parts, 
+        'recommended_parts': recommended_parts,
         'surveillance_frequency': surveillance_frequency,
         'last_surveillance_date': last_surveillance_date,
         'next_due_date': next_due_date,
@@ -651,21 +663,40 @@ def profile_view(request):
 
 @login_required
 def record_list_view(request):
-    """Display all surveillance records for the user."""
+    """Display all completed survey sessions for the user, grouped by farm."""
     grower = request.user.grower_profile
-    records = SurveillanceRecord.objects.filter(performed_by=grower).order_by('-date_performed')
-    
-    # Group by farm for summary stats
+
+    # Get all completed survey sessions
+    completed_sessions = SurveySession.objects.filter(
+        farm__owner=grower,
+        status='completed'
+    ).select_related('farm', 'surveyor').order_by('-end_time')
+
+    # Group sessions by farm
+    from itertools import groupby
+    from django.db.models import Count, Q
+
+    # Get farms with session counts
     farms = Farm.objects.filter(owner=grower).annotate(
-        record_count=Count('surveillance_records'),
-        pest_count=Count('surveillance_records__pests_found', distinct=True)
-    )
-    
+        session_count=Count('survey_sessions', filter=Q(survey_sessions__status='completed')),
+        pest_count=Count('survey_sessions__observations__pests_observed',
+                        filter=Q(survey_sessions__status='completed'),
+                        distinct=True)
+    ).order_by('name')
+
+    # Group sessions by farm
+    sessions_by_farm = {}
+    for farm in farms:
+        if farm.session_count > 0:
+            farm_sessions = completed_sessions.filter(farm=farm)
+            sessions_by_farm[farm] = farm_sessions
+
     context = {
-        'records': records,
-        'farms': farms
+        'farms': farms,
+        'sessions_by_farm': sessions_by_farm,
+        'completed_sessions': completed_sessions
     }
-    
+
     return render(request, 'core/record_list.html', context)
 
 
@@ -2057,7 +2088,44 @@ def create_mock_observations(observation_coords, all_pests, all_diseases):
 #         # Redirect back to the detail page or show an error page
 #         return redirect('core:survey_session_detail', session_id=session.id)
 
-# --- End PDF Generation View --- 
+# --- End PDF Generation View ---
+
+@login_required
+def delete_survey_session_view(request, session_id):
+    """
+    Deletes an incomplete survey session.
+
+    Only allows deletion of sessions with status 'not_started' or 'in_progress'.
+    Completed sessions cannot be deleted as they are part of the historical record.
+    """
+    # Get session and verify ownership
+    session = get_object_or_404(SurveySession, session_id=session_id, surveyor=request.user)
+    farm = session.farm
+
+    # Only allow deletion of incomplete sessions
+    if session.status not in ['not_started', 'in_progress']:
+        messages.error(request, "Only incomplete sessions can be deleted.")
+        return redirect('core:survey_session_list', farm_id=farm.id)
+
+    if request.method == 'POST':
+        # Keep session details for confirmation message
+        start_time = session.start_time
+        observation_count = session.observation_count()
+
+        # Delete the session (this will cascade to related observations due to on_delete=models.CASCADE)
+        session.delete()
+
+        # Add confirmation message
+        messages.success(
+            request,
+            f"Survey session from {start_time.strftime('%Y-%m-%d')} with {observation_count} observation(s) was deleted."
+        )
+
+        # Redirect back to the session list
+        return redirect('core:survey_session_list', farm_id=farm.id)
+
+    # If not POST, redirect to session list (shouldn't happen with our implementation)
+    return redirect('core:survey_session_list', farm_id=farm.id)
 
 @login_required
 def test_heatmap_view(request):
